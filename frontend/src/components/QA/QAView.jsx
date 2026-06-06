@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -152,8 +152,7 @@ export default function QAView() {
   const [filter, setFilter] = useState('pending');
   const [sortBy, setSortBy] = useState('urgency');
   const [focused, setFocused] = useState(null);
-  const [deepFocused, setDeepFocused] = useState(false);
-  const hoverTimer = useRef(null);
+
 
   async function loadQuestions() {
     setLoading(true);
@@ -168,12 +167,7 @@ export default function QAView() {
 
   useEffect(() => { loadQuestions(); }, [filter]);
 
-  // Progressive blur: after hovering 3 seconds, deepen the blur
-  const handleCardHover = useCallback(() => {
-    setDeepFocused(false);
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setDeepFocused(true), 3000);
-  }, []);
+
 
   const handleCardLeave = useCallback(() => {
     setDeepFocused(false);
@@ -219,12 +213,9 @@ export default function QAView() {
 
       {loading && <div className="flex justify-center py-12"><Loader size={24} className="animate-spin text-brand-500" /></div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-focus-group
-        onMouseLeave={handleCardLeave}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-focus-group>
         {sorted.map((q, i) => (
-          <div key={q.id || i} onMouseEnter={handleCardHover} onMouseLeave={handleCardLeave}>
-            <QuestionCard q={q} onClick={setFocused} isDeepFocused={deepFocused} />
-          </div>
+          <QuestionCard key={q.id || i} q={q} onClick={setFocused} />
         ))}
       </div>
 

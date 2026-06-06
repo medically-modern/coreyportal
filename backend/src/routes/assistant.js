@@ -192,3 +192,32 @@ ${liveContext}`;
     res.status(500).json({ error: 'Briefing failed', fallback: "Hey Corey — I\'m having trouble pulling your latest data, but your portal tiles below are loaded. Take a look and I\'ll catch up in a sec." });
   }
 });
+
+// Elena quick-context for a single focus item
+router.post('/focus-context', async (req, res) => {
+  try {
+    const { item } = req.body;
+    if (!item) return res.status(400).json({ error: 'item required' });
+
+    const { chat: elenaChat } = await import('../services/claude.js');
+    const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue. Give him:
+1. A one-sentence summary of what this is about (CONTEXT — who, what, why it matters)
+2. A suggested next action (be specific: "Reply with...", "Call back about...", "Delegate to...")
+
+Be warm, concise — 2-3 sentences max. No bullet points. Write like a trusted assistant whispering in his ear.
+
+The item:
+- Channel: ${item.channel}
+- From: ${item.from || 'Unknown'}
+- Subject: ${item.subject || ''}
+- Content: ${item.text || ''}
+- Time: ${item.time || 'Unknown'}
+- Urgent: ${item.urgent ? 'Yes' : 'No'}`;
+
+    const response = await elenaChat(prompt, 'focus-context');
+    res.json({ context: response });
+  } catch (err) {
+    console.error('Focus context error:', err);
+    res.status(500).json({ error: 'Context unavailable' });
+  }
+});

@@ -164,6 +164,9 @@ export default function Dashboard({ onNavigate }) {
             count: unread.length,
             items: threadList.filter(t => t.isUnread || t.unread).slice(0, 5).map(t => ({
               text: `${t.from?.split('<')[0]?.trim() || 'Unknown'}: ${t.subject}`,
+              from: t.from?.split('<')[0]?.trim() || 'Unknown',
+              subject: t.subject || '(no subject)',
+              snippet: t.snippet || t.subject || '',
               time: timeAgo(t.date),
               urgent: t.unread,
             })),
@@ -190,6 +193,9 @@ export default function Dashboard({ onNavigate }) {
               if (m.text && !m.text.includes('has joined the channel')) {
                 recentItems.push({
                   text: `#${ch.name}: ${m.text.slice(0, 80)}`,
+                  from: m.user_name || m.user || `#${ch.name}`,
+                  subject: m.text.slice(0, 80),
+                  snippet: m.text,
                   time: timeAgo(m.ts),
                   urgent: /urgent|escalat|ASAP|NOT CLEAR/i.test(m.text),
                 });
@@ -215,6 +221,9 @@ export default function Dashboard({ onNavigate }) {
             const last = (c.messages || [])[0];
             return {
               text: `${c.contact}: ${last?.text || '(no text)'}`,
+              from: c.contact || 'Unknown',
+              subject: last?.text?.slice(0, 80) || '(no text)',
+              snippet: last?.text || '',
               time: timeAgo(last?.time),
               urgent: last?.readStatus === 'Unread',
             };

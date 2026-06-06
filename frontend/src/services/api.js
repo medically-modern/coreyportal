@@ -64,6 +64,9 @@ export const api = {
   elenaMemory: () => request('/elena/memory'),
   elenaTeach: (fact) => request('/elena/teach', { method: 'POST', body: JSON.stringify(fact) }),
 
+  // Focus context (Elena per-item analysis)
+  focusContext: (item) => request('/assistant/focus-context', { method: 'POST', body: JSON.stringify({ item }) }),
+
   // Parking Lot notes
   notesGet: () => request('/notes'),
   notesCreate: (text) => request('/notes', { method: 'POST', body: JSON.stringify({ text }) }),
