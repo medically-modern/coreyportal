@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/init.js';
-import { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT } from '../config/elena-personality.js';
+import { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT, ADHD_COMMUNICATION_PROFILE } from '../config/elena-personality.js';
 import { KNOWLEDGE_BASE } from '../config/elena-knowledge-base.js';
 import { SLACK_KNOWLEDGE } from '../config/elena-slack-knowledge.js';
 import { createRequire } from 'module';
@@ -25,7 +25,7 @@ export async function chat(userMessage, contextModule = null) {
   ).all().reverse();
 
   // Build system prompt with live context
-  let systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE + '\n\n' + SLACK_KNOWLEDGE + contextBlock;
+  let systemPrompt = ELENA_SYSTEM_PROMPT + ADHD_COMMUNICATION_PROFILE + '\n\n' + KNOWLEDGE_BASE + '\n\n' + SLACK_KNOWLEDGE + contextBlock;
 
   // Add Elena's learned memory
   const learnedMemory = buildLearnedContext(userMessage);

@@ -28,6 +28,7 @@ export default function SubmitView() {
     question: '',
     category: '',
     urgency: 'medium',
+    headline: '',
     context: '',
     patient_name: '',
   });
@@ -37,8 +38,8 @@ export default function SubmitView() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.from.trim() || !form.question.trim() || !form.category) {
-      setError('Please fill in your name, question, and category.');
+    if (!form.from.trim() || !form.headline.trim() || !form.question.trim() || !form.category) {
+      setError('Please fill in your name, headline, details, and category.');
       return;
     }
     setSubmitting(true);
@@ -46,6 +47,7 @@ export default function SubmitView() {
     try {
       await api.submitQuestion({
         from: form.from.trim(),
+        headline: form.headline.trim(),
         question: form.question.trim(),
         category: form.category,
         urgency: form.urgency,
@@ -53,7 +55,7 @@ export default function SubmitView() {
         patient_name: form.patient_name.trim(),
       });
       setSubmitted(true);
-      setForm({ from: '', question: '', category: '', urgency: 'medium', context: '', patient_name: '' });
+      setForm({ from: '', question: '', category: '', urgency: 'medium', headline: '', context: '', patient_name: '' });
     } catch (e) {
       setError('Failed to submit. Please try again or message Corey directly.');
     }
@@ -159,11 +161,25 @@ export default function SubmitView() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Your Question / Request <span className="text-urgent">*</span></label>
+            <label className="block text-sm font-medium mb-2">Quick Summary <span className="text-urgent">*</span> <span className="text-surface-200/30">(15 words max)</span></label>
+            <input
+              value={form.headline}
+              onChange={e => {
+                const words = e.target.value.split(/\s+/).filter(Boolean);
+                if (words.length <= 15) setForm(p => ({ ...p, headline: e.target.value }));
+              }}
+              placeholder="e.g. Patient denied auth, need Corey's call to provider"
+              className="input w-full text-lg"
+            />
+            <p className="text-xs text-surface-200/20 mt-1">{form.headline.split(/\s+/).filter(Boolean).length}/15 words</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Full Details <span className="text-urgent">*</span></label>
             <textarea
               value={form.question}
               onChange={e => setForm(p => ({ ...p, question: e.target.value }))}
-              placeholder="What do you need from Corey? Be specific — include patient names, order numbers, or details that help him answer quickly."
+              placeholder="Give the full details here. Include patient names, order numbers, insurance info, what you\'ve tried, and what you need Corey to do."
               className="input w-full h-32 resize-none"
             />
           </div>

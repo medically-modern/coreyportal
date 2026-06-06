@@ -4,6 +4,13 @@ import { draftResponse } from '../services/claude.js';
 
 const router = Router();
 
+// Migrate: add headline column if missing
+try {
+  const db0 = getDb();
+  db0.exec("ALTER TABLE questions ADD COLUMN headline TEXT");
+} catch (e) { /* column already exists */ }
+
+
 // List questions
 router.get('/questions', (req, res) => {
   const db = getDb();
@@ -17,6 +24,7 @@ router.post('/questions', (req, res) => {
   const db = getDb();
   // Accept both old field names and new submit form fields
   const from_name = req.body.from_name || req.body.from;
+  const headline = req.body.headline || '';
   const question = req.body.question;
   const tag = req.body.tag || req.body.category || 'Other';
   const priority = req.body.priority || req.body.urgency || 'medium';
@@ -32,8 +40,8 @@ router.post('/questions', (req, res) => {
   if (context) fullQuestion += '\n\nContext: ' + context;
 
   const result = db.prepare(
-    'INSERT INTO questions (from_name, from_email, tag, question, priority) VALUES (?, ?, ?, ?, ?)'
-  ).run(from_name, from_email, tag, fullQuestion, priority);
+    'INSERT INTO questions (from_name, from_email, tag, headline, question, priority) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(from_name, from_email, tag, headline, fullQuestion, priority);
 
   res.json({ id: result.lastInsertRowid, status: 'submitted' });
 });

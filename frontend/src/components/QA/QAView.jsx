@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { HelpCircle, RefreshCw, Loader, Send, CheckCircle2, Clock, MessageSquare } from 'lucide-react';
+import { RefreshCw, Loader, Send, X, Clock, User, Tag, AlertTriangle, ArrowUpDown } from 'lucide-react';
 import { api } from '../../services/api';
+
+const URGENCY_CONFIG = {
+  emergency:  { label: 'EMERGENCY', bg: 'bg-red-700',    border: 'border-red-700',    text: 'text-red-100',    dot: 'bg-red-500',    glow: 'shadow-red-500/20',  order: 0 },
+  super_high: { label: 'SUPER HIGH', bg: 'bg-red-600/80', border: 'border-red-600',    text: 'text-red-100',    dot: 'bg-red-400',    glow: 'shadow-red-400/20',  order: 1 },
+  high:       { label: 'HIGH',       bg: 'bg-orange-600/60', border: 'border-orange-500', text: 'text-orange-100', dot: 'bg-orange-400', glow: 'shadow-orange-400/15', order: 2 },
+  medium:     { label: 'MEDIUM',     bg: 'bg-amber-600/40', border: 'border-amber-500/50', text: 'text-amber-100', dot: 'bg-amber-400', glow: 'shadow-amber-400/10', order: 3 },
+  low:        { label: 'LOW',        bg: 'bg-blue-600/30', border: 'border-blue-500/30', text: 'text-blue-200',  dot: 'bg-blue-400',  glow: '',                    order: 4 },
+  very_low:   { label: 'VERY LOW',   bg: 'bg-slate-600/20', border: 'border-slate-500/20', text: 'text-slate-300', dot: 'bg-slate-400', glow: '',                   order: 5 },
+  normal:     { label: 'NORMAL',     bg: 'bg-surface-200/10', border: 'border-surface-200/10', text: 'text-surface-200/60', dot: 'bg-surface-200/40', glow: '',    order: 3 },
+};
+
+function getUrgency(q) {
+  return URGENCY_CONFIG[q.priority || q.urgency || 'normal'] || URGENCY_CONFIG.normal;
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -12,163 +26,234 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function QuestionCard({ q, onClick }) {
+  const u = getUrgency(q);
+  return (
+    <div
+      onClick={() => onClick(q)}
+      className={`group rounded-xl border-2 ${u.border} ${u.bg} p-4 cursor-pointer transition-all hover:scale-[1.01] ${u.glow ? `shadow-lg ${u.glow}` : ''}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`w-3 h-3 rounded-full ${u.dot}`} />
+          <span className={`text-xs font-black uppercase tracking-wider ${u.text}`}>{u.label}</span>
+        </div>
+        <span className="text-xs text-surface-200/30">{timeAgo(q.created_at)}</span>
+      </div>
+
+      <h3 className="text-base font-bold mt-2 leading-snug">{q.headline || q.question?.split('\n')[0]?.slice(0, 60) || 'No headline'}</h3>
+
+      <div className="flex items-center gap-3 mt-3 text-xs text-surface-200/40">
+        <span className="flex items-center gap-1"><User size={11} /> {q.from_name || 'Team'}</span>
+        <span className="flex items-center gap-1"><Tag size={11} /> {q.tag || 'General'}</span>
+      </div>
+    </div>
+  );
+}
+
+function FocusModal({ question, onClose, onAnswer }) {
+  const [answer, setAnswer] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const u = getUrgency(question);
+
+  async function handleAnswer() {
+    if (!answer.trim()) return;
+    setSubmitting(true);
+    try {
+      await api.answerQuestion(question.id, answer);
+      onAnswer();
+    } catch (e) {}
+    setSubmitting(false);
+  }
+
+  // Parse question text to separate patient info, main question, and context
+  const qText = question.question || '';
+  const patientMatch = qText.match(/^\[Patient: ([^\]]+)\]\s*/);
+  const patientName = patientMatch ? patientMatch[1] : null;
+  const afterPatient = patientMatch ? qText.slice(patientMatch[0].length) : qText;
+  const contextSplit = afterPatient.split('\n\nContext: ');
+  const mainQuestion = contextSplit[0];
+  const context = contextSplit[1] || null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+      {/* Blur overlay */}
+      <div className="absolute inset-0 bg-surface-900/80 backdrop-blur-md" onClick={onClose} />
+
+      {/* Modal */}
+      <div className={`relative w-full max-w-lg rounded-2xl border-2 ${u.border} bg-surface-800 shadow-2xl overflow-hidden`}>
+        {/* Urgency banner */}
+        <div className={`${u.bg} px-6 py-3 flex items-center justify-between`}>
+          <div className="flex items-center gap-2">
+            <span className={`w-3 h-3 rounded-full ${u.dot} animate-pulse`} />
+            <span className={`text-sm font-black uppercase tracking-wider ${u.text}`}>{u.label}</span>
+          </div>
+          <button onClick={onClose} className="text-surface-200/40 hover:text-white transition">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          {/* Headline */}
+          <h2 className="text-xl font-bold leading-tight">
+            {question.headline || mainQuestion?.slice(0, 80)}
+          </h2>
+
+          {/* Who + When + Category — clear, spaced */}
+          <div className="flex flex-wrap gap-4 text-sm">
+            <div className="bg-surface-200/5 rounded-lg px-3 py-2">
+              <p className="text-xs text-surface-200/30 mb-0.5">From</p>
+              <p className="font-semibold">{question.from_name || 'Team'}</p>
+            </div>
+            <div className="bg-surface-200/5 rounded-lg px-3 py-2">
+              <p className="text-xs text-surface-200/30 mb-0.5">Category</p>
+              <p className="font-semibold">{question.tag || 'General'}</p>
+            </div>
+            <div className="bg-surface-200/5 rounded-lg px-3 py-2">
+              <p className="text-xs text-surface-200/30 mb-0.5">Submitted</p>
+              <p className="font-semibold">{timeAgo(question.created_at)}</p>
+            </div>
+          </div>
+
+          {/* Patient (if applicable) */}
+          {patientName && (
+            <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-4 py-3">
+              <p className="text-xs text-brand-400 mb-1 font-medium">Patient</p>
+              <p className="text-base font-bold">{patientName}</p>
+            </div>
+          )}
+
+          {/* The actual question — broken into readable chunks */}
+          <div>
+            <p className="text-xs text-surface-200/30 mb-2 uppercase tracking-wider font-medium">Details</p>
+            <div className="text-sm text-surface-200/80 leading-relaxed space-y-3">
+              {mainQuestion.split('\n').filter(Boolean).map((line, i) => (
+                <p key={i}>{line}</p>
+              ))}
+            </div>
+          </div>
+
+          {/* Context (if provided) */}
+          {context && (
+            <div className="bg-surface-200/5 rounded-lg px-4 py-3">
+              <p className="text-xs text-surface-200/30 mb-2 uppercase tracking-wider font-medium">Background Context</p>
+              <div className="text-sm text-surface-200/60 leading-relaxed space-y-2">
+                {context.split('\n').filter(Boolean).map((line, i) => (
+                  <p key={i}>{line}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Answer section */}
+          {question.answer ? (
+            <div className="bg-good/10 border border-good/20 rounded-lg px-4 py-3">
+              <p className="text-xs text-good mb-2 font-medium">Your Answer</p>
+              <p className="text-sm text-surface-200/80">{question.answer}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-surface-200/30 uppercase tracking-wider font-medium">Your Response</p>
+              <textarea
+                value={answer}
+                onChange={e => setAnswer(e.target.value)}
+                placeholder="Type your response..."
+                className="input w-full h-24 resize-none"
+              />
+              <button onClick={handleAnswer} disabled={submitting || !answer.trim()} className="btn-primary w-full flex items-center justify-center gap-2">
+                {submitting ? <Loader size={16} className="animate-spin" /> : <Send size={16} />}
+                {submitting ? 'Sending...' : 'Send Response'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function QAView() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
-  const [answerText, setAnswerText] = useState({});
-  const [answering, setAnswering] = useState(null);
-  const [submitForm, setSubmitForm] = useState(false);
-  const [newQ, setNewQ] = useState({ from: '', question: '', category: 'general' });
-  const [submitting, setSubmitting] = useState(false);
+  const [sortBy, setSortBy] = useState('urgency'); // urgency | person | category | newest
+  const [focused, setFocused] = useState(null);
 
   async function loadQuestions() {
     setLoading(true);
     try {
       const data = await api.questions(filter);
       setQuestions(data.questions || data || []);
-    } catch (e) {
-      console.error('QA load error:', e);
-    }
+    } catch (e) {}
     setLoading(false);
-  }
-
-  async function handleAnswer(id) {
-    const answer = answerText[id];
-    if (!answer?.trim()) return;
-    setAnswering(id);
-    try {
-      await api.answerQuestion(id, answer);
-      setAnswerText(prev => ({ ...prev, [id]: '' }));
-      loadQuestions();
-    } catch (e) {}
-    setAnswering(null);
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!newQ.question.trim()) return;
-    setSubmitting(true);
-    try {
-      await api.submitQuestion(newQ);
-      setNewQ({ from: '', question: '', category: 'general' });
-      setSubmitForm(false);
-      setFilter('pending');
-      loadQuestions();
-    } catch (e) {}
-    setSubmitting(false);
   }
 
   useEffect(() => { loadQuestions(); }, [filter]);
 
+  const sorted = [...questions].sort((a, b) => {
+    if (sortBy === 'urgency') {
+      const ua = getUrgency(a).order;
+      const ub = getUrgency(b).order;
+      return ua - ub;
+    }
+    if (sortBy === 'person') return (a.from_name || '').localeCompare(b.from_name || '');
+    if (sortBy === 'category') return (a.tag || '').localeCompare(b.tag || '');
+    if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
+    return 0;
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <HelpCircle size={20} /> Q&A Board
-        </h1>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setSubmitForm(!submitForm)} className="btn-primary text-xs">
-            + Ask Question
-          </button>
-          <button onClick={loadQuestions} className="text-surface-200/40 hover:text-white">
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
+        <h1 className="text-xl font-bold">Team Requests</h1>
+        <button onClick={loadQuestions} className="text-surface-200/40 hover:text-white">
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex gap-2">
+          {['pending', 'answered', 'all'].map(f => (
+            <button key={f} onClick={() => setFilter(f)} className={`text-xs px-3 py-1.5 rounded-full transition capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
+              {f}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1 text-xs text-surface-200/40">
+          <ArrowUpDown size={12} />
+          {['urgency', 'person', 'category', 'newest'].map(s => (
+            <button key={s} onClick={() => setSortBy(s)} className={`px-2 py-1 rounded transition capitalize ${sortBy === s ? 'bg-surface-200/10 text-white' : 'hover:text-white'}`}>
+              {s}
+            </button>
+          ))}
         </div>
       </div>
 
-      {submitForm && (
-        <form onSubmit={handleSubmit} className="card space-y-3">
-          <h3 className="text-sm font-semibold">Submit a Question for Corey</h3>
-          <input
-            value={newQ.from}
-            onChange={e => setNewQ(p => ({ ...p, from: e.target.value }))}
-            placeholder="Your name"
-            className="input w-full"
-          />
-          <textarea
-            value={newQ.question}
-            onChange={e => setNewQ(p => ({ ...p, question: e.target.value }))}
-            placeholder="What's your question?"
-            className="input w-full h-20 resize-none"
-          />
-          <select
-            value={newQ.category}
-            onChange={e => setNewQ(p => ({ ...p, category: e.target.value }))}
-            className="input w-full"
-          >
-            <option value="general">General</option>
-            <option value="pipeline">Pipeline</option>
-            <option value="technology">Technology</option>
-            <option value="admin">Admin</option>
-            <option value="urgent">Urgent</option>
-          </select>
-          <button type="submit" disabled={submitting} className="btn-primary text-sm">
-            {submitting ? 'Submitting...' : 'Submit'}
-          </button>
-        </form>
+      {loading && <div className="flex justify-center py-12"><Loader size={24} className="animate-spin text-brand-500" /></div>}
+
+      {/* Card grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 focus-group">
+        {sorted.map((q, i) => (
+          <QuestionCard key={q.id || i} q={q} onClick={setFocused} />
+        ))}
+      </div>
+
+      {!loading && sorted.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-surface-200/30 text-lg">No {filter} requests</p>
+        </div>
       )}
 
-      <div className="flex gap-2">
-        {['pending', 'answered', 'all'].map(f => (
-          <button key={f} onClick={() => setFilter(f)} className={`text-xs px-3 py-1.5 rounded-full transition capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
-            {f}
-          </button>
-        ))}
-      </div>
-
-      {loading && <div className="flex justify-center py-8"><Loader size={24} className="animate-spin text-brand-500" /></div>}
-
-      <div className="space-y-3">
-        {questions.map((q, i) => (
-          <div key={q.id || i} className="card">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  {q.status === 'answered' ? (
-                    <CheckCircle2 size={14} className="text-green-400" />
-                  ) : (
-                    <Clock size={14} className="text-yellow-400" />
-                  )}
-                  <span className="text-xs text-surface-200/40">{q.from_name || q.from || 'Team member'} · {timeAgo(q.created_at)}</span>
-                  {(q.tag || q.category) && (
-                    <span className="text-xs bg-surface-200/10 px-2 py-0.5 rounded-full text-surface-200/50">{q.tag || q.category}</span>
-                  )}
-                </div>
-                <p className="text-sm font-medium">{q.question}</p>
-              </div>
-            </div>
-
-            {q.answer && (
-              <div className="mt-3 pl-4 border-l-2 border-brand-500/30">
-                <p className="text-xs text-brand-500 mb-1">Corey's Answer</p>
-                <p className="text-sm text-surface-200/70">{q.answer}</p>
-              </div>
-            )}
-
-            {q.status !== 'answered' && (
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={answerText[q.id] || ''}
-                  onChange={e => setAnswerText(prev => ({ ...prev, [q.id]: e.target.value }))}
-                  placeholder="Type your answer..."
-                  className="input flex-1 text-sm"
-                />
-                <button onClick={() => handleAnswer(q.id)} disabled={answering === q.id} className="btn-primary px-3">
-                  {answering === q.id ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {!loading && questions.length === 0 && (
-          <div className="card text-center py-8">
-            <MessageSquare size={32} className="mx-auto text-surface-200/20 mb-2" />
-            <p className="text-sm text-surface-200/40">No {filter} questions right now.</p>
-          </div>
-        )}
-      </div>
+      {/* Focus modal */}
+      {focused && (
+        <FocusModal
+          question={focused}
+          onClose={() => setFocused(null)}
+          onAnswer={() => { setFocused(null); loadQuestions(); }}
+        />
+      )}
     </div>
   );
 }

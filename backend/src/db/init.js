@@ -30,6 +30,7 @@ export function initDb() {
       from_name TEXT NOT NULL,
       from_email TEXT,
       tag TEXT NOT NULL DEFAULT 'Other',
+      headline TEXT,
       question TEXT NOT NULL,
       answer TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
