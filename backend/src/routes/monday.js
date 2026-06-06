@@ -11,6 +11,7 @@ const BOARD_IDS = [
   18406060017,  // Medical Evaluation
   18410601299,  // Insurance
   18410804557,  // Welcome Call
+  18070135692,  // Force Board
 ];
 
 // ─── In-memory patient index ───
