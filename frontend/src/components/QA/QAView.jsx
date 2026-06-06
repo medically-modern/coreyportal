@@ -130,9 +130,9 @@ export default function QAView() {
                   ) : (
                     <Clock size={14} className="text-yellow-400" />
                   )}
-                  <span className="text-xs text-surface-200/40">{q.from || 'Team member'} · {timeAgo(q.created_at)}</span>
-                  {q.category && (
-                    <span className="text-xs bg-surface-200/10 px-2 py-0.5 rounded-full text-surface-200/50">{q.category}</span>
+                  <span className="text-xs text-surface-200/40">{q.from_name || q.from || 'Team member'} · {timeAgo(q.created_at)}</span>
+                  {(q.tag || q.category) && (
+                    <span className="text-xs bg-surface-200/10 px-2 py-0.5 rounded-full text-surface-200/50">{q.tag || q.category}</span>
                   )}
                 </div>
                 <p className="text-sm font-medium">{q.question}</p>

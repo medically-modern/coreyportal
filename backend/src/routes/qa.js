@@ -8,21 +8,41 @@ const router = Router();
 router.get('/questions', (req, res) => {
   const db = getDb();
   const status = req.query.status || 'pending';
-  const questions = db.prepare('SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC').all(status);
+  const questions = status === 'all' ? db.prepare('SELECT * FROM questions ORDER BY created_at DESC').all() : db.prepare('SELECT * FROM questions WHERE status = ? ORDER BY created_at DESC').all(status);
   res.json({ questions });
 });
 
 // Submit a question (employee-facing)
 router.post('/questions', (req, res) => {
   const db = getDb();
-  const { from_name, from_email, tag, question, priority } = req.body;
-  if (!from_name || !question) return res.status(400).json({ error: 'from_name and question required' });
+  // Accept both old field names and new submit form fields
+  const from_name = req.body.from_name || req.body.from;
+  const question = req.body.question;
+  const tag = req.body.tag || req.body.category || 'Other';
+  const priority = req.body.priority || req.body.urgency || 'medium';
+  const from_email = req.body.from_email || null;
+  const patient_name = req.body.patient_name || '';
+  const context = req.body.context || '';
+  
+  if (!from_name || !question) return res.status(400).json({ error: 'name and question required' });
+
+  // Append patient name and context to question for Corey's visibility
+  let fullQuestion = question;
+  if (patient_name) fullQuestion = `[Patient: ${patient_name}] ${fullQuestion}`;
+  if (context) fullQuestion += '\n\nContext: ' + context;
 
   const result = db.prepare(
     'INSERT INTO questions (from_name, from_email, tag, question, priority) VALUES (?, ?, ?, ?, ?)'
-  ).run(from_name, from_email || null, tag || 'Other', question, priority || 'normal');
+  ).run(from_name, from_email, tag, fullQuestion, priority);
 
   res.json({ id: result.lastInsertRowid, status: 'submitted' });
+});
+
+// Get all questions (support 'all' filter)
+router.get('/questions/all', (req, res) => {
+  const db = getDb();
+  const questions = db.prepare('SELECT * FROM questions ORDER BY created_at DESC').all();
+  res.json({ questions });
 });
 
 // AI draft for a question
