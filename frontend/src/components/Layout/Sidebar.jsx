@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, MessageSquare, Phone,
-  Bot, ChevronLeft, ChevronRight
+  Bot, ChevronLeft, ChevronRight, HelpCircle
 } from 'lucide-react';
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/gmail', icon: Mail, label: 'Email' },
   { to: '/ringcentral', icon: Phone, label: 'Texts & Calls' },
   { to: '/slack', icon: MessageSquare, label: 'Slack' },
+  { to: '/qa', icon: HelpCircle, label: 'Team Questions' },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
