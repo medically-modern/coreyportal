@@ -119,12 +119,21 @@ export async function getConversationMessages(phoneNumber, perPage = 50) {
   }));
 }
 
-// Get ALL messages for a specific phone number — paginates fully, matches by digits
-export async function getFullConversation(phoneNumber, daysBack = 180) {
-  const p = await getPlatform();
-  const phoneDigits = phoneNumber.replace(/\D/g, '');
-  const last10 = phoneDigits.slice(-10);
+// ─── Conversation cache ───
+// phone (last 10 digits) → { messages: [...], fetchedAt: timestamp }
+const convoCache = new Map();
+const CONVO_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+let allMessagesCache = null;
+let allMessagesCacheTime = 0;
+const ALL_MSGS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Fetch all SMS once (with caching), then filter per-phone from cache
+async function getAllMessages(daysBack = 90) {
+  if (allMessagesCache && (Date.now() - allMessagesCacheTime < ALL_MSGS_CACHE_TTL)) {
+    return allMessagesCache;
+  }
+
+  const p = await getPlatform();
   const since = new Date();
   since.setDate(since.getDate() - daysBack);
 
@@ -141,33 +150,56 @@ export async function getFullConversation(phoneNumber, daysBack = 180) {
     });
     const data = await res.json();
     const records = data.records || [];
-
-    // Filter for this phone number (client-side — RC's phoneNumber filter is unreliable)
-    for (const msg of records) {
-      const from = (msg.from?.phoneNumber || '').replace(/\D/g, '');
-      const to = (msg.to?.[0]?.phoneNumber || '').replace(/\D/g, '');
-      if (from.slice(-10) === last10 || to.slice(-10) === last10) {
-        allRecords.push({
-          direction: msg.direction,
-          text: msg.subject,
-          time: msg.creationTime,
-          readStatus: msg.readStatus,
-        });
-      }
-    }
+    allRecords = allRecords.concat(records);
 
     if (data.paging && data.paging.page < data.paging.totalPages) {
       page++;
     } else {
       hasMore = false;
     }
-    // Safety cap at 5000 to avoid runaway pagination
-    if (page > 20) hasMore = false;
+    // Cap at 10 pages (2500 msgs) to stay under rate limits
+    if (page > 10) hasMore = false;
+  }
+
+  allMessagesCache = allRecords;
+  allMessagesCacheTime = Date.now();
+  console.log(`[RC] Cached ${allRecords.length} SMS messages (${page - 1} pages, ${daysBack} day lookback)`);
+  return allRecords;
+}
+
+// Get ALL messages for a specific phone number — uses cached message store
+export async function getFullConversation(phoneNumber, daysBack = 90) {
+  const phoneDigits = phoneNumber.replace(/\D/g, '');
+  const last10 = phoneDigits.slice(-10);
+
+  // Check per-phone cache first
+  const cached = convoCache.get(last10);
+  if (cached && (Date.now() - cached.fetchedAt < CONVO_CACHE_TTL)) {
+    return cached.messages;
+  }
+
+  const allRecords = await getAllMessages(daysBack);
+  const matched = [];
+
+  for (const msg of allRecords) {
+    const from = (msg.from?.phoneNumber || '').replace(/\D/g, '');
+    const to = (msg.to?.[0]?.phoneNumber || '').replace(/\D/g, '');
+    if (from.slice(-10) === last10 || to.slice(-10) === last10) {
+      matched.push({
+        direction: msg.direction,
+        text: msg.subject,
+        time: msg.creationTime,
+        readStatus: msg.readStatus,
+      });
+    }
   }
 
   // Sort chronologically (oldest first)
-  allRecords.sort((a, b) => new Date(a.time) - new Date(b.time));
-  return allRecords;
+  matched.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+  // Cache per-phone result
+  convoCache.set(last10, { messages: matched, fetchedAt: Date.now() });
+  return matched;
 }
 
 // ---- VOICEMAILS ----
