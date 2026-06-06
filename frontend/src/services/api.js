@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://corey-portal-api-production.up.railway.app/api';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {

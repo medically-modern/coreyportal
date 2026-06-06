@@ -36,6 +36,8 @@ jobs:
 
       - name: Build
         working-directory: frontend
+        env:
+          VITE_API_URL: https://corey-portal-api-production.up.railway.app/api
         run: npm run build
 
       - name: Upload artifact
