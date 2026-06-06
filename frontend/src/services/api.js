@@ -69,7 +69,8 @@ export const api = {
 
   // Parking Lot notes
   notesGet: () => request('/notes'),
-  notesCreate: (text) => request('/notes', { method: 'POST', body: JSON.stringify({ text }) }),
+  notesCreate: (text, color) => request('/notes', { method: 'POST', body: JSON.stringify({ text, color }) }),
+  notesUpdate: (id, data) => request(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   notesDelete: (id) => request(`/notes/${id}`, { method: 'DELETE' }),
 
   // Projects

@@ -1,8 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StickyNote, X, Plus, Trash2 } from 'lucide-react';
+import { StickyNote, X, Plus, Trash2, Pin, PinOff } from 'lucide-react';
 import { api } from '../../services/api';
 
 const LOCAL_KEY = 'corey-parking-lot';
+
+const COLORS = [
+  { id: 'gray', bg: 'bg-surface-200/10', border: 'border-surface-200/20', dot: 'bg-surface-200/40', label: 'None' },
+  { id: 'red', bg: 'bg-red-500/10', border: 'border-red-500/25', dot: 'bg-red-400', label: 'Urgent' },
+  { id: 'amber', bg: 'bg-amber-500/10', border: 'border-amber-500/25', dot: 'bg-amber-400', label: 'Idea' },
+  { id: 'green', bg: 'bg-green-500/10', border: 'border-green-500/25', dot: 'bg-green-400', label: 'Done' },
+  { id: 'blue', bg: 'bg-blue-500/10', border: 'border-blue-500/25', dot: 'bg-blue-400', label: 'Follow-up' },
+  { id: 'purple', bg: 'bg-purple-500/10', border: 'border-purple-500/25', dot: 'bg-purple-400', label: 'Personal' },
+];
+
+function getColor(id) {
+  return COLORS.find(c => c.id === id) || COLORS[0];
+}
 
 function formatTime(ts) {
   const d = new Date(ts);
@@ -14,13 +27,15 @@ function formatTime(ts) {
   return d.toLocaleDateString();
 }
 
-// Normalize a note from either server or local format
 function normalize(n) {
   return {
     id: n.id,
     text: n.text,
-    ts: n.created_at ? new Date(n.created_at + 'Z').getTime() : (n.ts || Date.now()),
-    synced: n.synced !== false, // server notes are synced by default
+    color: n.color || 'gray',
+    pinned: n.pinned ? true : false,
+    ts: n.created_at ? new Date(n.created_at + (n.created_at.endsWith('Z') ? '' : 'Z')).getTime() : (n.ts || Date.now()),
+    updatedAt: n.updated_at ? new Date(n.updated_at + (n.updated_at.endsWith('Z') ? '' : 'Z')).getTime() : null,
+    synced: n.synced !== false,
   };
 }
 
@@ -28,6 +43,7 @@ export default function ParkingLot() {
   const [notes, setNotes] = useState([]);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [selectedColor, setSelectedColor] = useState('gray');
   const [position, setPosition] = useState(() => {
     try { return JSON.parse(localStorage.getItem('corey-parking-pos')) || { x: null, y: null }; }
     catch { return { x: null, y: null }; }
@@ -40,36 +56,34 @@ export default function ParkingLot() {
   const inputRef = useRef(null);
   const dragStartPos = useRef(null);
 
-  // Load from server on mount, fall back to localStorage
+  // Load from server on mount
   useEffect(() => {
-    (async () => {
-      try {
-        const { notes: serverNotes } = await api.notesGet();
-        const normalized = serverNotes.map(normalize);
-        setNotes(normalized);
-        // Cache locally
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
-        // Push any unsynced local notes to server
-        try {
-          const local = JSON.parse(localStorage.getItem(LOCAL_KEY + '-pending') || '[]');
-          for (const n of local) {
-            await api.notesCreate(n.text);
-          }
-          if (local.length > 0) {
-            localStorage.removeItem(LOCAL_KEY + '-pending');
-            // Re-fetch to get server IDs
-            const { notes: fresh } = await api.notesGet();
-            setNotes(fresh.map(normalize));
-          }
-        } catch {}
-      } catch {
-        // Offline — load from localStorage
-        try {
-          setNotes(JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'));
-        } catch { setNotes([]); }
-      }
-    })();
+    loadNotes();
   }, []);
+
+  async function loadNotes() {
+    try {
+      const { notes: serverNotes } = await api.notesGet();
+      const normalized = serverNotes.map(normalize);
+      setNotes(normalized);
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
+      // Push any unsynced local notes
+      try {
+        const local = JSON.parse(localStorage.getItem(LOCAL_KEY + '-pending') || '[]');
+        for (const n of local) {
+          await api.notesCreate(n.text, n.color);
+        }
+        if (local.length > 0) {
+          localStorage.removeItem(LOCAL_KEY + '-pending');
+          const { notes: fresh } = await api.notesGet();
+          setNotes(fresh.map(normalize));
+        }
+      } catch {}
+    } catch {
+      try { setNotes(JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]')); }
+      catch { setNotes([]); }
+    }
+  }
 
   // Save position
   useEffect(() => {
@@ -131,26 +145,43 @@ export default function ParkingLot() {
     setPulse(true);
     setTimeout(() => setPulse(false), 600);
 
-    // Optimistic local add
-    const tempNote = { id: `temp-${Date.now()}`, text, ts: Date.now(), synced: false };
-    setNotes(prev => [tempNote, ...prev]);
+    const tempNote = { id: `temp-${Date.now()}`, text, color: selectedColor, pinned: false, ts: Date.now(), synced: false };
+    setNotes(prev => {
+      const pinned = prev.filter(n => n.pinned);
+      const unpinned = prev.filter(n => !n.pinned);
+      return [...pinned, tempNote, ...unpinned];
+    });
 
     try {
-      const { note } = await api.notesCreate(text);
-      // Replace temp with server version
-      setNotes(prev => prev.map(n => n.id === tempNote.id ? normalize(note) : n));
-      // Update local cache
+      const { note } = await api.notesCreate(text, selectedColor);
       setNotes(prev => {
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(prev));
-        return prev;
+        const updated = prev.map(n => n.id === tempNote.id ? normalize(note) : n);
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(updated));
+        return updated;
       });
     } catch {
-      // Queue for later sync
       try {
         const pending = JSON.parse(localStorage.getItem(LOCAL_KEY + '-pending') || '[]');
-        pending.push({ text });
+        pending.push({ text, color: selectedColor });
         localStorage.setItem(LOCAL_KEY + '-pending', JSON.stringify(pending));
       } catch {}
+    }
+    setSelectedColor('gray');
+  }
+
+  async function updateNote(id, data) {
+    // Optimistic update
+    setNotes(prev => {
+      const updated = prev.map(n => n.id === id ? { ...n, ...data } : n);
+      // Re-sort: pinned first
+      const pinned = updated.filter(n => n.pinned);
+      const unpinned = updated.filter(n => !n.pinned);
+      const sorted = [...pinned, ...unpinned];
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(sorted));
+      return sorted;
+    });
+    if (typeof id === 'number') {
+      try { await api.notesUpdate(id, data); } catch {}
     }
   }
 
@@ -177,6 +208,8 @@ export default function ParkingLot() {
     }
   }
 
+  const latestNote = notes.length > 0 ? notes[0] : null;
+
   const posStyle = position.x !== null
     ? { left: position.x, top: position.y }
     : { right: 24, bottom: 24 };
@@ -189,7 +222,7 @@ export default function ParkingLot() {
     >
       {/* Expanded Panel */}
       {open && (
-        <div className="parking-panel absolute bottom-16 right-0 w-80 max-h-96 bg-surface-800 border border-surface-200/20 rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-parking-open">
+        <div className="parking-panel absolute bottom-16 right-0 w-96 max-h-[32rem] bg-surface-800 border border-surface-200/20 rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-parking-open">
           <div className="flex items-center justify-between px-4 py-3 border-b border-surface-200/10 bg-surface-900/50">
             <div className="flex items-center gap-2">
               <StickyNote size={16} className="text-amber-400" />
@@ -201,6 +234,7 @@ export default function ParkingLot() {
             </button>
           </div>
 
+          {/* Quick add */}
           <div className="p-3 border-b border-surface-200/10">
             <div className="flex gap-2">
               <textarea
@@ -220,8 +254,23 @@ export default function ParkingLot() {
                 <Plus size={16} />
               </button>
             </div>
+            {/* Color picker row */}
+            <div className="flex items-center gap-1.5 mt-2">
+              <span className="text-[10px] text-surface-200/30 mr-1">Label:</span>
+              {COLORS.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedColor(c.id)}
+                  className={`w-5 h-5 rounded-full ${c.dot} transition-all ${
+                    selectedColor === c.id ? 'ring-2 ring-white ring-offset-1 ring-offset-surface-800 scale-110' : 'opacity-50 hover:opacity-80'
+                  }`}
+                  title={c.label}
+                />
+              ))}
+            </div>
           </div>
 
+          {/* Notes list */}
           <div className="flex-1 overflow-y-auto">
             {notes.length === 0 ? (
               <div className="py-8 text-center text-sm text-surface-200/30">
@@ -229,46 +278,167 @@ export default function ParkingLot() {
                 Brain dump here — nothing lost
               </div>
             ) : (
-              notes.map(note => (
-                <div key={note.id} className="group px-4 py-3 border-b border-surface-200/5 hover:bg-surface-200/5 transition">
-                  <div className="flex justify-between items-start gap-2">
-                    <p className="text-sm text-surface-200/80 whitespace-pre-wrap flex-1">{note.text}</p>
-                    <button
-                      onClick={() => deleteNote(note.id)}
-                      className="text-surface-200/20 hover:text-red-400 opacity-0 group-hover:opacity-100 transition shrink-0 mt-0.5"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs text-surface-200/20">{formatTime(note.ts)}</p>
-                    {!note.synced && <span className="text-[9px] text-amber-500/50">saving...</span>}
-                  </div>
-                </div>
-              ))
+              notes.map(note => {
+                const color = getColor(note.color);
+                return (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    color={color}
+                    onUpdate={(data) => updateNote(note.id, data)}
+                    onDelete={() => deleteNote(note.id)}
+                  />
+                );
+              })
             )}
           </div>
         </div>
       )}
 
-      {/* Floating Bubble */}
+      {/* Floating Bubble — with latest note preview */}
       <button
         onMouseDown={handleMouseDown}
         onClick={handleBubbleClick}
-        className={`w-14 h-14 rounded-full shadow-lg shadow-black/30 flex items-center justify-center transition-all
-          ${open ? 'bg-amber-500 text-surface-900' : 'bg-surface-800 border-2 border-amber-500/40 text-amber-400 hover:border-amber-500 hover:bg-surface-700'}
+        className={`group relative flex items-center gap-2 rounded-full shadow-lg shadow-black/30 transition-all
+          ${open ? 'bg-amber-500 text-surface-900 px-4 py-3' : 'bg-surface-800 border-2 border-amber-500/40 text-amber-400 hover:border-amber-500 hover:bg-surface-700 px-3 py-3'}
           ${pulse ? 'scale-110' : 'scale-100'}
           ${dragging ? 'cursor-grabbing scale-105' : 'cursor-grab'}
         `}
         title="Parking Lot — dump thoughts here"
       >
-        <StickyNote size={22} />
+        <StickyNote size={20} className="shrink-0" />
+        {!open && latestNote && (
+          <span className="max-w-[140px] text-xs text-surface-200/60 truncate hidden group-hover:inline">
+            {latestNote.text}
+          </span>
+        )}
         {notes.length > 0 && !open && (
           <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 rounded-full text-[10px] font-bold text-surface-900 flex items-center justify-center">
             {notes.length > 9 ? '9+' : notes.length}
           </span>
         )}
       </button>
+    </div>
+  );
+}
+
+// Individual note card with inline edit, color picker, pin
+function NoteCard({ note, color, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(note.text);
+  const [showColors, setShowColors] = useState(false);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.selectionStart = textareaRef.current.value.length;
+      autoResize(textareaRef.current);
+    }
+  }, [editing]);
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+  }
+
+  function saveEdit() {
+    const trimmed = editText.trim();
+    if (trimmed && trimmed !== note.text) {
+      onUpdate({ text: trimmed });
+    }
+    setEditing(false);
+  }
+
+  function handleEditKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveEdit();
+    }
+    if (e.key === 'Escape') {
+      setEditText(note.text);
+      setEditing(false);
+    }
+  }
+
+  return (
+    <div className={`group px-4 py-3 border-b border-surface-200/5 ${color.bg} transition relative`}>
+      {/* Pin indicator */}
+      {note.pinned && (
+        <div className="absolute top-1.5 right-2 text-amber-400/40">
+          <Pin size={10} />
+        </div>
+      )}
+
+      {/* Note body */}
+      {editing ? (
+        <textarea
+          ref={textareaRef}
+          value={editText}
+          onChange={e => { setEditText(e.target.value); autoResize(e.target); }}
+          onKeyDown={handleEditKeyDown}
+          onBlur={saveEdit}
+          className="w-full bg-surface-900/50 border border-surface-200/20 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-amber-500/50 resize-none"
+          rows={1}
+        />
+      ) : (
+        <p
+          className="text-sm text-surface-200/80 whitespace-pre-wrap cursor-pointer hover:text-white transition"
+          onClick={() => { setEditing(true); setEditText(note.text); }}
+        >
+          {note.text}
+        </p>
+      )}
+
+      {/* Meta row */}
+      <div className="flex items-center justify-between mt-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-surface-200/20">{formatTime(note.ts)}</span>
+          {!note.synced && <span className="text-[9px] text-amber-500/50">saving...</span>}
+          {/* Color dot — click to change */}
+          <button
+            onClick={() => setShowColors(!showColors)}
+            className={`w-3 h-3 rounded-full ${color.dot} opacity-60 hover:opacity-100 transition`}
+            title="Change label"
+          />
+        </div>
+
+        {/* Actions — visible on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+          <button
+            onClick={() => onUpdate({ pinned: !note.pinned })}
+            className={`p-1 rounded hover:bg-surface-200/10 transition ${note.pinned ? 'text-amber-400' : 'text-surface-200/30 hover:text-amber-400'}`}
+            title={note.pinned ? 'Unpin' : 'Pin to top'}
+          >
+            {note.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1 rounded text-surface-200/20 hover:text-red-400 hover:bg-surface-200/10 transition"
+            title="Delete"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* Color picker dropdown */}
+      {showColors && (
+        <div className="flex items-center gap-1.5 mt-2 py-1">
+          {COLORS.map(c => (
+            <button
+              key={c.id}
+              onClick={() => { onUpdate({ color: c.id }); setShowColors(false); }}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] transition ${c.bg} ${c.border} border ${
+                note.color === c.id ? 'ring-1 ring-white/30' : 'opacity-60 hover:opacity-100'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

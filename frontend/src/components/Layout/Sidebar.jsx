@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, MessageSquare, Phone,
-  Bot, ChevronLeft, ChevronRight, HelpCircle, FolderKanban
+  Bot, ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote
 } from 'lucide-react';
 
 const NAV = [
@@ -12,6 +12,7 @@ const NAV = [
   { to: '/slack', icon: MessageSquare, label: 'Slack' },
   { to: '/questions', icon: HelpCircle, label: 'Team Questions' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
+  { to: '/notes', icon: StickyNote, label: 'Parking Lot' },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
