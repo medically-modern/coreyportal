@@ -1,154 +1,140 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/init.js';
+import { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT } from '../config/elena-personality.js';
+import { buildContextForMessage, logDecision, addFollowup, ingestContent } from './context.js';
 
-const SYSTEM_PROMPT = `You are Corey's personal AI assistant for Medically Modern, a Durable Medical Equipment (DME) company.
+const anthropic = new Anthropic();
 
-ABOUT COREY:
-- CEO of Medically Modern
-- Has severe ADD — you must be concise, action-oriented, and never overwhelming
-- Deals with: pipeline questions, technology questions, admin questions, former seller questions
-- Communication channels: Gmail, Slack, RingCentral (texts + calls), Monday.com
-
-YOUR BEHAVIOR:
-- Lead with the single most important thing
-- Use bullet points sparingly — max 3-5 items
-- Always end with a clear "what to do next" action
-- If something can wait, say so explicitly
-- If you can handle something without Corey, offer to do it
-- Never dump raw data — always summarize and prioritize
-- Remember Corey's past decisions and preferences to suggest consistent approaches
-- When drafting responses, match Corey's voice: direct, friendly, professional
-
-YOUR CAPABILITIES:
-- Summarize email threads and text conversations
-- Draft responses in Corey's voice
-- Triage and prioritize incoming requests
-- Answer employee questions using company knowledge
-- Analyze voicemail transcriptions
-- Track tasks and deadlines from Monday.com
-
-IMPORTANT:
-- If asked about medical advice, insurance claims, or legal matters — always caveat that you're an AI assistant and recommend consulting the appropriate professional
-- Never make commitments on Corey's behalf without explicit confirmation`;
-
-let client;
-
-function getClient() {
-  if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  }
-  return client;
-}
-
-// Load conversation history for context
-function getRecentHistory(limit = 20) {
+// Chat with Elena — full context-aware conversation
+export async function chat(userMessage, contextModule = null) {
   const db = getDb();
-  return db.prepare('SELECT role, content FROM conversations ORDER BY id DESC LIMIT ?').all(limit).reverse();
-}
 
-// Load Corey's learned preferences
-function getPreferences() {
-  const db = getDb();
-  const prefs = db.prepare('SELECT key, value FROM preferences').all();
-  if (prefs.length === 0) return '';
-  return '\n\nCOREY\'S KNOWN PREFERENCES:\n' + prefs.map(p => `- ${p.key}: ${p.value}`).join('\n');
-}
+  // Build cross-channel context from the message
+  const context = await buildContextForMessage(userMessage);
+  const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
-// Save a message to history
-function saveMessage(role, content, contextModule = null) {
-  const db = getDb();
-  db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run(role, content, contextModule);
-}
+  // Get conversation history (last 20 messages)
+  const history = db.prepare(
+    'SELECT role, content FROM conversations ORDER BY created_at DESC LIMIT 20'
+  ).all().reverse();
 
-// Learn a preference from conversation
-function learnPreference(key, value, learnedFrom) {
-  const db = getDb();
-  db.prepare(`INSERT INTO preferences (key, value, learned_from, updated_at) 
-    VALUES (?, ?, ?, datetime('now')) 
-    ON CONFLICT(key) DO UPDATE SET value = ?, learned_from = ?, updated_at = datetime('now')`)
-    .run(key, value, learnedFrom, value, learnedFrom);
-}
+  // Build system prompt with live context
+  let systemPrompt = ELENA_SYSTEM_PROMPT + contextBlock;
 
-export async function chat(userMessage, context = {}) {
-  const anthropic = getClient();
-  const history = getRecentHistory();
-  const preferences = getPreferences();
-
-  const systemPrompt = SYSTEM_PROMPT + preferences;
-
-  // Add context about what module the user is in
-  let contextNote = '';
-  if (context.module) {
-    contextNote = `\n[User is currently viewing the ${context.module} module]`;
-  }
-  if (context.data) {
-    contextNote += `\n[Relevant data: ${JSON.stringify(context.data)}]`;
+  if (contextModule) {
+    systemPrompt += `\n\nCorey is currently in the ${contextModule} module of the portal.`;
   }
 
+  // Build messages array
   const messages = [
     ...history.map(h => ({ role: h.role, content: h.content })),
-    { role: 'user', content: userMessage + contextNote },
+    { role: 'user', content: userMessage }
   ];
-
-  saveMessage('user', userMessage, context.module);
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
     system: systemPrompt,
-    messages,
+    messages
   });
 
   const assistantMessage = response.content[0].text;
-  saveMessage('assistant', assistantMessage, context.module);
 
-  return { message: assistantMessage };
+  // Save to conversation history
+  db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('user', userMessage, contextModule);
+  db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('assistant', assistantMessage, contextModule);
+
+  // Ingest entities from both messages for context tracking
+  await ingestContent(userMessage, contextModule || 'assistant', '');
+  await ingestContent(assistantMessage, 'assistant', '');
+
+  // Detect if Elena suggested a decision or follow-up (async, non-blocking)
+  detectAndLogActions(assistantMessage).catch(() => {});
+
+  return assistantMessage;
 }
 
-export async function summarize(text, type = 'email') {
-  const anthropic = getClient();
-
-  const prompt = type === 'email'
-    ? `Summarize this email thread for a busy CEO with ADD. Lead with the action needed, then 2-3 key points max:\n\n${text}`
-    : type === 'text'
-    ? `Summarize this text message conversation for a busy CEO with ADD. What's the situation and what does he need to do:\n\n${text}`
-    : `Analyze this voicemail transcription for a busy CEO with ADD. Who called, what they want, urgency level, and recommended action:\n\n${text}`;
+// Summarize any content through Elena's lens
+export async function summarize(content, contentType = 'conversation') {
+  const context = await buildContextForMessage(content);
+  const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 512,
-    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 500,
+    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nYou are summarizing a ${contentType} for Corey. Remember: lead with the most important thing, max 3-5 bullets, end with what Corey should do (if anything). If you recognize any patients, employees, or issues from your context, connect the dots.`,
+    messages: [{ role: 'user', content: `Summarize this:\n\n${content}` }]
   });
 
-  return { summary: response.content[0].text };
+  // Track entities in summarized content
+  await ingestContent(content, contentType, '');
+
+  return response.content[0].text;
 }
 
-export async function draftResponse(originalMessage, context = '') {
-  const anthropic = getClient();
-  const preferences = getPreferences();
+// Draft a response in Corey's voice
+export async function draftResponse(originalMessage, channel = 'email') {
+  const context = await buildContextForMessage(originalMessage);
+  const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 512,
-    system: `Draft a response as Corey, CEO of Medically Modern (DME company). 
-Voice: direct, friendly, professional. Keep it short.${preferences}`,
-    messages: [{ role: 'user', content: `Draft a reply to this:\n\n${originalMessage}\n\nAdditional context: ${context}` }],
+    max_tokens: 500,
+    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nDraft a reply for Corey to send via ${channel}. Match his tone: professional but personable, direct, confident. Use any relevant context you have about the person or issue. Keep it concise.`,
+    messages: [{ role: 'user', content: `Draft a reply to this:\n\n${originalMessage}` }]
   });
 
-  return { draft: response.content[0].text };
+  return response.content[0].text;
 }
 
-export async function triageItems(items) {
-  const anthropic = getClient();
+// Triage items — prioritize for ADHD brain
+export async function triageItems(items, itemType = 'messages') {
+  const context = await buildContextForMessage(JSON.stringify(items));
+  const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: `Triage these items for Corey. Classify each as urgent/warn/normal and sort by priority. Return JSON array with {id, priority, reason, suggestedAction}:\n\n${JSON.stringify(items)}` }],
+    max_tokens: 800,
+    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nTriage these ${itemType} for Corey. Categorize each as:
+- 🔴 DO NOW — time-sensitive or high-impact, needs Corey specifically
+- 🟡 TODAY — important but not urgent
+- 🟢 CAN WAIT — delegate or batch for later
+- ⚪ NOISE — Elena can handle or ignore
+
+For each item, add one line of context connecting it to anything you know. Group and present in priority order.`,
+    messages: [{ role: 'user', content: JSON.stringify(items, null, 2) }]
   });
 
-  return { triage: response.content[0].text };
+  return response.content[0].text;
 }
 
-export { learnPreference, getRecentHistory };
+// Learn a preference from Corey's behavior
+export async function learnPreference(key, value, learnedFrom = '') {
+  const db = getDb();
+  db.prepare(
+    'INSERT OR REPLACE INTO preferences (key, value, learned_from, updated_at) VALUES (?, ?, ?, datetime(\'now\'))'
+  ).run(key, value, learnedFrom);
+}
+
+// Auto-detect decisions and follow-ups in Elena's responses
+async function detectAndLogActions(responseText) {
+  try {
+    const detection = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,
+      system: 'Analyze this assistant response. Extract any decisions made or follow-ups mentioned. Return JSON: {"decisions": [{"summary": "...", "entities": ["name1"]}], "followups": [{"description": "...", "due": "date or null", "entity": "name or null"}]}. If none found, return {"decisions":[],"followups":[]}. JSON only.',
+      messages: [{ role: 'user', content: responseText }]
+    });
+
+    const result = JSON.parse(detection.content[0].text.trim());
+
+    for (const d of result.decisions || []) {
+      logDecision(d.summary, '', d.entities || []);
+    }
+    for (const f of result.followups || []) {
+      addFollowup(f.description, f.due, f.entity);
+    }
+  } catch (err) {
+    // Non-critical — don't fail the main flow
+  }
+}

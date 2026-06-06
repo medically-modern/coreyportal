@@ -54,8 +54,52 @@ export function initDb() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    
+    -- Entity tracking (patients, employees, vendors across all channels)
+    CREATE TABLE IF NOT EXISTS entities (
+      name TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'unknown',
+      first_seen_channel TEXT,
+      first_seen_at TEXT DEFAULT (datetime('now')),
+      last_seen_at TEXT DEFAULT (datetime('now')),
+      notes TEXT
+    );
+
+    -- Every mention of an entity across any channel
+    CREATE TABLE IF NOT EXISTS mentions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_name TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      source_id TEXT,
+      context TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (entity_name) REFERENCES entities(name)
+    );
+
+    -- Decisions Corey has made (for pattern learning)
+    CREATE TABLE IF NOT EXISTS decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      summary TEXT NOT NULL,
+      reasoning TEXT,
+      entities TEXT,
+      channel TEXT NOT NULL DEFAULT 'assistant',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Follow-ups Elena is tracking
+    CREATE TABLE IF NOT EXISTS followups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      description TEXT NOT NULL,
+      due_date TEXT,
+      related_entity TEXT,
+      channel TEXT NOT NULL DEFAULT 'assistant',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
     -- Settings (OAuth tokens, config)
-    CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at TEXT DEFAULT (datetime('now'))

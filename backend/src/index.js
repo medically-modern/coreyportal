@@ -12,6 +12,7 @@ import qaRoutes from './routes/qa.js';
 import mondayRoutes from './routes/monday.js';
 import assistantRoutes from './routes/assistant.js';
 import dashboardRoutes from './routes/dashboard.js';
+import contextRoutes from './routes/context.js';
 
 config();
 
@@ -21,7 +22,7 @@ const PORT = process.env.PORT || 4000;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || /^https?:\/\/(medically-modern\.github\.io|localhost(:\d+)?)/i,
   credentials: true,
 }));
 app.use(morgan('short'));
@@ -33,7 +34,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     services: {
-      gmail: !!process.env.GMAIL_CLIENT_ID,
+      gmail: !!process.env.GOOGLE_CLIENT_ID,
       slack: !!process.env.SLACK_BOT_TOKEN,
       ringcentral: !!process.env.RC_CLIENT_ID,
       monday: !!process.env.MONDAY_API_TOKEN,
@@ -50,6 +51,7 @@ app.use('/api/ringcentral', rcRoutes);
 app.use('/api/qa', qaRoutes);
 app.use('/api/monday', mondayRoutes);
 app.use('/api/assistant', assistantRoutes);
+app.use('/api/context', contextRoutes);
 
 // Init DB and start
 initDb();
