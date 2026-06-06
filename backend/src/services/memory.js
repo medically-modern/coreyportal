@@ -26,7 +26,12 @@ If nothing to learn, return {"facts": []}. JSON only, no markdown.`,
       messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }]
     });
 
-    const result = JSON.parse(response.content[0].text.trim());
+    let raw = response.content[0].text.trim();
+    // Strip markdown code fences if present
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    const result = JSON.parse(raw);
     return result.facts || [];
   } catch (err) {
     console.error('Learning detection failed:', err.message);

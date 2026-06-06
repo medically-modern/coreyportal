@@ -16,7 +16,10 @@ export async function extractEntities(text, channel, sourceId) {
       messages: [{ role: 'user', content: text.substring(0, 2000) }]
     });
 
-    const raw = response.content[0].text.trim();
+    let raw = response.content[0].text.trim();
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
     const entities = JSON.parse(raw);
 
     const db = getDb();

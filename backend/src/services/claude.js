@@ -142,7 +142,11 @@ async function detectAndLogActions(responseText) {
       messages: [{ role: 'user', content: responseText }]
     });
 
-    const result = JSON.parse(detection.content[0].text.trim());
+    let raw = detection.content[0].text.trim();
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    const result = JSON.parse(raw);
 
     for (const d of result.decisions || []) {
       logDecision(d.summary, '', d.entities || []);
