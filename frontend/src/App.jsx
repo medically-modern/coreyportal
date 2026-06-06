@@ -10,9 +10,24 @@ import RingCentralView from './components/RingCentral/RingCentralView';
 import SlackView from './components/Slack/SlackView';
 import AssistantView from './components/Assistant/AssistantView';
 import SubmitView from './components/Submit/SubmitView';
+import ParkingLot from './components/Focus/ParkingLot';
+import HyperfocusGuard from './components/Focus/HyperfocusGuard';
+import KeyboardNav from './components/Focus/KeyboardNav';
 
 function PortalLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingCounts, setPendingCounts] = useState({});
+
+  // Poll pending counts from dashboard state
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (window.__coreyPendingCounts) {
+        setPendingCounts(window.__coreyPendingCounts);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface-900">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
@@ -22,6 +37,10 @@ function PortalLayout({ children }) {
           {children}
         </main>
       </div>
+      {/* Global ADHD tools */}
+      <ParkingLot />
+      <HyperfocusGuard pendingCounts={pendingCounts} />
+      <KeyboardNav />
     </div>
   );
 }

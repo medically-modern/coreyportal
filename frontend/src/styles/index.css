@@ -54,3 +54,41 @@
   filter: blur(3.5px);
   opacity: 0.45;
 }
+
+/* ── ADHD Focus Animations ── */
+
+/* Subtle pulse for overdue items (>24h) */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s ease-in-out infinite;
+}
+
+/* Parking lot expand */
+@keyframes parking-open {
+  from { opacity: 0; transform: scale(0.9) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-parking-open {
+  animation: parking-open 0.2s ease-out;
+}
+
+/* Slide up for toasts */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Slide down for banners */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-down {
+  animation: slide-down 0.3s ease-out;
+}

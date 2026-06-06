@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, Loader, Bot, RefreshCw, ChevronRight, AlertCircle, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mail, Phone, MessageSquare, HelpCircle, Loader, Bot, RefreshCw, ChevronRight, CheckCircle2, ArrowRight, Zap, SkipForward, LayoutList } from 'lucide-react';
 import { api } from '../../services/api';
+import DoThisNext from '../Focus/DoThisNext';
+import ProgressRing from '../Focus/ProgressRing';
+import WhereWasI from '../Focus/WhereWasI';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -13,7 +16,21 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function ChannelBucket({ icon: Icon, label, color, bgColor, count, items, loading, onDrilldown }) {
+// Urgency decay: returns border/bg classes based on item age
+function getDecayClasses(timeStr, isUrgent) {
+  if (isUrgent) return 'border-l-urgent bg-urgent/5';
+  const match = (timeStr || '').match(/(\d+)(m|h|d)/);
+  if (!match) return 'border-l-good/50';
+  const [, num, unit] = match;
+  const mins = unit === 'm' ? +num : unit === 'h' ? +num * 60 : +num * 1440;
+  if (mins > 1440) return 'border-l-urgent bg-urgent/5 animate-pulse-subtle';
+  if (mins > 480) return 'border-l-urgent bg-urgent/5';
+  if (mins > 120) return 'border-l-warn bg-warn/5';
+  if (mins > 30) return 'border-l-amber-400/50';
+  return 'border-l-good/50';
+}
+
+function ChannelBucket({ icon: Icon, label, color, bgColor, count, items, loading, onDrilldown, onDismissItem, onTriageItem }) {
   return (
     <div data-focus-item="" className={`rounded-2xl border-2 ${bgColor} p-6 transition-all hover:scale-[1.01]`}>
       <div className="flex items-center justify-between mb-4">
@@ -35,10 +52,30 @@ function ChannelBucket({ icon: Icon, label, color, bgColor, count, items, loadin
       {items.length > 0 && (
         <div className="space-y-2 mt-3">
           {items.slice(0, 3).map((item, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm text-surface-200/70 bg-surface-900/30 rounded-lg px-3 py-2">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${item.urgent ? 'bg-urgent' : 'bg-surface-200/30'}`} />
+            <div
+              key={i}
+              className={`group flex items-center gap-2 text-sm text-surface-200/70 bg-surface-900/30 rounded-lg px-3 py-2 border-l-2 transition-all ${getDecayClasses(item.time, item.urgent)}`}
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${item.urgent ? 'bg-urgent animate-pulse' : 'bg-surface-200/30'}`} />
               <span className="truncate flex-1">{item.text}</span>
               <span className="text-xs text-surface-200/30 shrink-0">{item.time}</span>
+              {/* Inline triage — visible on hover */}
+              <div className="hidden group-hover:flex items-center gap-1 shrink-0 ml-1">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDismissItem?.(i); }}
+                  className="p-1 rounded hover:bg-surface-200/10 text-surface-200/30 hover:text-surface-200/60 transition"
+                  title="Dismiss"
+                >
+                  <SkipForward size={12} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onTriageItem?.(i, 'elena'); }}
+                  className="p-1 rounded hover:bg-brand-600/20 text-surface-200/30 hover:text-brand-400 transition"
+                  title="Send to Elena"
+                >
+                  <Bot size={12} />
+                </button>
+              </div>
             </div>
           ))}
           {count > 3 && (
@@ -68,7 +105,7 @@ function PendingQuestions({ questions, loading }) {
       </div>
       <div className="space-y-2">
         {questions.slice(0, 3).map((q, i) => (
-          <div key={i} className="flex items-start gap-2 text-sm bg-surface-900/30 rounded-lg px-3 py-2">
+          <div key={i} className="group flex items-start gap-2 text-sm bg-surface-900/30 rounded-lg px-3 py-2">
             <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 mt-0.5 ${
               q.urgency === 'emergency' || q.urgency === 'super_high' ? 'bg-urgent/20 text-urgent' :
               q.urgency === 'high' ? 'bg-warn/20 text-warn' :
@@ -94,15 +131,28 @@ export default function Dashboard({ onNavigate }) {
   const [rcData, setRcData] = useState({ count: 0, items: [] });
   const [questions, setQuestions] = useState([]);
   const [channelsLoading, setChannelsLoading] = useState({ email: true, slack: true, rc: true, qa: true });
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('corey-view-mode') || 'focus');
+  const [dismissedItems, setDismissedItems] = useState(new Set());
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  useEffect(() => { localStorage.setItem('corey-view-mode', viewMode); }, [viewMode]);
+
+  // Expose pending counts globally for HyperfocusGuard
+  useEffect(() => {
+    window.__coreyPendingCounts = {
+      '/gmail': emailData.count,
+      '/slack': slackData.count,
+      '/ringcentral': rcData.count,
+      '/questions': questions.length,
+    };
+  }, [emailData.count, slackData.count, rcData.count, questions.length]);
 
   async function loadAllChannels() {
     setLoading(true);
     setChannelsLoading({ email: true, slack: true, rc: true, qa: true });
 
-    // Load all channels in parallel
     const emailPromise = (async () => {
       try {
         const status = await api.gmailStatus();
@@ -131,7 +181,6 @@ export default function Dashboard({ onNavigate }) {
       try {
         const chData = await api.slackChannels();
         const channels = chData.channels || chData || [];
-        // Get recent messages from top channels
         let recentItems = [];
         for (const ch of channels.slice(0, 3)) {
           try {
@@ -192,7 +241,6 @@ export default function Dashboard({ onNavigate }) {
   }
 
   async function getElenaBriefing(forceRefresh = false) {
-    // Cache Elena's briefing for 30 minutes
     const cache = window.__elenaBriefingCache;
     if (!forceRefresh && cache && (Date.now() - cache.time < 30 * 60 * 1000)) {
       setBriefing(cache.text);
@@ -202,7 +250,6 @@ export default function Dashboard({ onNavigate }) {
 
     setBriefingLoading(true);
     try {
-      // Use dedicated briefing endpoint — live-fetches Gmail + RingCentral server-side
       const res = await api.briefing();
       const text = res.briefing || res.response;
       setBriefing(text);
@@ -219,20 +266,50 @@ export default function Dashboard({ onNavigate }) {
     getElenaBriefing();
   }, []);
 
+  const totalItems = emailData.count + slackData.count + rcData.count + questions.length;
+  const handledItems = dismissedItems.size;
+
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
-      {/* Greeting */}
+    <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Where Was I? banner */}
+      <WhereWasI />
+
+      {/* Header with Progress Ring */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">{greeting}, Corey</h1>
           <p className="text-surface-200/40 text-sm mt-1">Here's your world at a glance.</p>
         </div>
-        <button onClick={() => { loadAllChannels(); getElenaBriefing(true); }} className="text-surface-200/30 hover:text-white transition">
-          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-3">
+          <ProgressRing handled={handledItems} total={totalItems} />
+          {/* View mode toggle */}
+          <div className="flex bg-surface-200/10 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('focus')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
+                viewMode === 'focus' ? 'bg-brand-600 text-white' : 'text-surface-200/50 hover:text-white'
+              }`}
+              title="Do This Next — one item at a time"
+            >
+              <Zap size={12} /> Focus
+            </button>
+            <button
+              onClick={() => setViewMode('buckets')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition flex items-center gap-1.5 ${
+                viewMode === 'buckets' ? 'bg-brand-600 text-white' : 'text-surface-200/50 hover:text-white'
+              }`}
+              title="All channels view"
+            >
+              <LayoutList size={12} /> All
+            </button>
+          </div>
+          <button onClick={() => { loadAllChannels(); getElenaBriefing(true); }} className="text-surface-200/30 hover:text-white transition">
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {/* Elena's Briefing — always first, always visible */}
+      {/* Elena's Briefing */}
       <div className="rounded-2xl bg-gradient-to-br from-brand-600/10 to-brand-900/20 border-2 border-brand-600/20 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-brand-600/30 flex items-center justify-center">
@@ -262,40 +339,48 @@ export default function Dashboard({ onNavigate }) {
         </button>
       </div>
 
-      {/* Channel Buckets — big, visual, simple */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-focus-group>
-        <ChannelBucket
-          icon={Mail}
-          label="Email"
-          color="bg-blue-500"
-          bgColor="border-blue-500/20 bg-blue-500/5"
-          count={emailData.count}
-          items={emailData.items}
-          loading={channelsLoading.email}
-          onDrilldown={() => onNavigate?.('/gmail')}
+      {/* Content: Focus mode or Bucket mode */}
+      {viewMode === 'focus' ? (
+        <DoThisNext
+          emailData={emailData}
+          slackData={slackData}
+          rcData={rcData}
+          questions={questions}
+          onNavigate={onNavigate}
+          onDismiss={(id) => setDismissedItems(prev => new Set(prev).add(id))}
         />
-        <ChannelBucket
-          icon={Phone}
-          label="Texts & Calls"
-          color="bg-green-500"
-          bgColor="border-green-500/20 bg-green-500/5"
-          count={rcData.count}
-          items={rcData.items}
-          loading={channelsLoading.rc}
-          onDrilldown={() => onNavigate?.('/ringcentral')}
-        />
-        <ChannelBucket
-          icon={MessageSquare}
-          label="Slack"
-          color="bg-amber-500"
-          bgColor="border-amber-500/20 bg-amber-500/5"
-          count={slackData.count}
-          items={slackData.items}
-          loading={channelsLoading.slack}
-          onDrilldown={() => onNavigate?.('/slack')}
-        />
-        <PendingQuestions questions={questions} loading={channelsLoading.qa} />
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-focus-group>
+          <ChannelBucket
+            icon={Mail} label="Email" color="bg-blue-500"
+            bgColor="border-blue-500/20 bg-blue-500/5"
+            count={emailData.count} items={emailData.items}
+            loading={channelsLoading.email}
+            onDrilldown={() => onNavigate?.('/gmail')}
+            onDismissItem={(i) => setDismissedItems(prev => new Set(prev).add(`email-${i}`))}
+            onTriageItem={(i, action) => console.log('triage', i, action)}
+          />
+          <ChannelBucket
+            icon={Phone} label="Texts & Calls" color="bg-green-500"
+            bgColor="border-green-500/20 bg-green-500/5"
+            count={rcData.count} items={rcData.items}
+            loading={channelsLoading.rc}
+            onDrilldown={() => onNavigate?.('/ringcentral')}
+            onDismissItem={(i) => setDismissedItems(prev => new Set(prev).add(`rc-${i}`))}
+            onTriageItem={(i, action) => console.log('triage', i, action)}
+          />
+          <ChannelBucket
+            icon={MessageSquare} label="Slack" color="bg-amber-500"
+            bgColor="border-amber-500/20 bg-amber-500/5"
+            count={slackData.count} items={slackData.items}
+            loading={channelsLoading.slack}
+            onDrilldown={() => onNavigate?.('/slack')}
+            onDismissItem={(i) => setDismissedItems(prev => new Set(prev).add(`slack-${i}`))}
+            onTriageItem={(i, action) => console.log('triage', i, action)}
+          />
+          <PendingQuestions questions={questions} loading={channelsLoading.qa} />
+        </div>
+      )}
     </div>
   );
 }
