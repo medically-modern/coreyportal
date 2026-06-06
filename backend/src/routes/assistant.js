@@ -156,44 +156,47 @@ router.post('/focus-context', async (req, res) => {
       } catch {}
     }
 
-    // Monday.com patient lookup — search by phone number or patient name
-    // Wrapped in 8-second timeout so it never blocks the response
+    // Monday.com patient lookup — only for RC texts (not emails)
     let mondayContext = '';
     let mondayTimedOut = false;
     let mondaySearched = false;
-    try {
-      const { searchMondayPatient } = await import('./monday.js');
-      const mondayQuery = item.from || patientName || '';
-      if (mondayQuery) {
-        mondaySearched = true;
-        const mondayResults = await Promise.race([
-          searchMondayPatient(mondayQuery),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Monday search timeout')), 8000))
-        ]);
-        if (mondayResults && mondayResults.length > 0) {
-          mondayContext = '\n\nMONDAY.COM PATIENT RECORDS:\n';
-          for (const r of mondayResults.slice(0, 3)) {
-            mondayContext += `Patient: ${r.name} | Board: ${r.board} | Stage: ${r.group}\n`;
-            const cols = Object.entries(r.columns || {}).slice(0, 8);
-            if (cols.length > 0) {
-              mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`;
+    const isTextChannel = item.channel === 'rc';
+
+    if (isTextChannel) {
+      try {
+        const { searchMondayPatient } = await import('./monday.js');
+        const mondayQuery = item.from || patientName || '';
+        if (mondayQuery) {
+          mondaySearched = true;
+          const mondayResults = await Promise.race([
+            searchMondayPatient(mondayQuery),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Monday search timeout')), 8000))
+          ]);
+          if (mondayResults && mondayResults.length > 0) {
+            mondayContext = '\n\nMONDAY.COM PATIENT RECORDS:\n';
+            for (const r of mondayResults.slice(0, 3)) {
+              mondayContext += `Patient: ${r.name} | Board: ${r.board} | Stage: ${r.group}\n`;
+              const cols = Object.entries(r.columns || {}).slice(0, 8);
+              if (cols.length > 0) {
+                mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`;
+              }
             }
+            if (!patientName && mondayResults[0]?.name) {
+              patientName = mondayResults[0].name;
+            }
+          } else {
+            mondayContext = '\n\n⚠️ MONDAY.COM: Patient NOT FOUND on any board. This may need follow-up.\n';
           }
-          if (!patientName && mondayResults[0]?.name) {
-            patientName = mondayResults[0].name;
-          }
-        } else {
-          mondayContext = '\n\n⚠️ MONDAY.COM: Patient NOT FOUND on any board. This may need follow-up.\n';
         }
-      }
-    } catch (e) {
-      if (e.message === 'Monday search timeout') {
-        mondayTimedOut = true;
-        mondayContext = '\n\n⚠️ MONDAY.COM: Search timed out — could not verify patient records.\n';
-        console.warn('[focus-context] Monday search timed out after 8s');
-      } else {
-        console.error('Monday patient lookup error:', e.message);
-        mondayContext = '\n\n⚠️ MONDAY.COM: Search failed — could not verify patient records.\n';
+      } catch (e) {
+        if (e.message === 'Monday search timeout') {
+          mondayTimedOut = true;
+          mondayContext = '\n\n⚠️ MONDAY.COM: Search timed out — could not verify patient records.\n';
+          console.warn('[focus-context] Monday search timed out after 8s');
+        } else {
+          console.error('Monday patient lookup error:', e.message);
+          mondayContext = '\n\n⚠️ MONDAY.COM: Search failed — could not verify patient records.\n';
+        }
       }
     }
 
@@ -202,14 +205,18 @@ router.post('/focus-context', async (req, res) => {
     const hasMondayData = mondayContext.includes('Patient:');
 
     const { oneShot } = await import('../services/claude.js');
-    const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
 
-## ABSOLUTE RULES — VIOLATION = SYSTEM FAILURE
-1. You may ONLY reference information explicitly provided below. If data is missing, SAY IT IS MISSING.
-2. If there is NO conversation history below, you MUST say "I couldn't pull the conversation history for this number."
-3. If Monday.com shows NOT FOUND or timed out, you MUST flag that to Corey.
-4. NEVER invent, guess, or assume who someone is, what they want, or what a message is about.
-5. If all you have is a single text message with no history, say exactly what you see — nothing more.
+    // Channel-specific prompts
+    let prompt;
+    if (isTextChannel) {
+      // ── TEXT/RC prompt: patient-focused ──
+      prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at a TEXT MESSAGE in his focus queue.
+
+## ABSOLUTE RULES
+1. You may ONLY reference information explicitly provided below.
+2. If there is NO conversation history, say "I couldn't pull the conversation history for this number."
+3. If Monday.com shows NOT FOUND or timed out, flag it.
+4. NEVER invent or guess who someone is or what they want.
 
 ## DATA AVAILABILITY
 - Conversation history: ${hasConversationHistory ? 'YES — loaded below' : 'NO — could not retrieve'}
@@ -217,9 +224,8 @@ router.post('/focus-context', async (req, res) => {
 ${patientName ? `- Patient name found: ${patientName}` : '- Patient name: NOT IDENTIFIED'}
 
 ## ITEM
-Channel: ${item.channel}
+Channel: Text/SMS
 From: ${item.from || 'Unknown'}
-Subject: ${item.subject || ''}
 Text: ${item.text || ''}
 Time: ${item.time || ''}
 ${conversationHistory}${entityContext}${mondayContext}
@@ -227,13 +233,38 @@ ${conversationHistory}${entityContext}${mondayContext}
 ## RESPONSE FORMAT
 Give Corey:
 1. A 1-sentence summary (use patient name if found, flag missing data)
-2. What he should do next
+2. What he should do next (be specific)
 3. Urgency: Do Now, Today, or Can Wait
 
-${!hasConversationHistory ? 'IMPORTANT: Since conversation history is missing, start with "⚠️ Couldn\'t pull the full conversation history." Then summarize ONLY what you can see in the message text above.' : ''}
-${mondaySearched && !hasMondayData ? 'IMPORTANT: Flag that this patient was not found on Monday.com boards.' : ''}
+${!hasConversationHistory ? 'Start with "⚠️ Couldn\'t pull the full conversation history."' : ''}
+${mondaySearched && !hasMondayData ? 'Flag that this patient was not found on Monday.com boards.' : ''}
+Keep it to 2-3 sentences. Be warm but direct.`;
+    } else {
+      // ── EMAIL prompt: business-context-aware ──
+      prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at an EMAIL in his focus queue.
+
+## RULES
+1. ONLY reference information provided below. NEVER invent context.
+2. Classify the email type: vendor/invoice, patient communication, internal, marketing/spam, regulatory, or other.
+3. For vendor/invoice emails: summarize what's owed, to whom, and any deadline. Do NOT look up names as patients.
+4. For patient emails: note who it's from and what they need.
+5. For marketing/spam: tell Corey he can skip it.
+
+## ITEM
+From: ${item.from || 'Unknown'}
+Subject: ${item.subject || ''}
+Preview: ${item.text || ''}
+Time: ${item.time || ''}
+${conversationHistory}${entityContext}
+
+## RESPONSE FORMAT
+Give Corey:
+1. Email type (vendor, patient, internal, spam, etc.) + 1-sentence summary
+2. What to do (pay, reply, delegate, skip, etc.)
+3. Urgency: Do Now, Today, or Can Wait
 
 Keep it to 2-3 sentences. Be warm but direct.`;
+    }
 
     const response = await oneShot(prompt);
     res.json({ context: response });
