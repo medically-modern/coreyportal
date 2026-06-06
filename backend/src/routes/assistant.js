@@ -464,16 +464,60 @@ router.post('/briefing', async (req, res) => {
     }
 
     const { oneShot } = await import('../services/claude.js');
-    const briefingPrompt = `You're briefing Corey right now as he opens his portal. You have LIVE data below. Be warm, calm, and direct. Start with "Hey Corey -" and then:
-1. What's most PRESSING - unread emails and texts ARE his to-do list. Be specific with names and subjects.
-2. A calm overview: total unprocessed emails, unread texts, pending team questions, missed calls.
-3. End with one clear next step.
-Keep it to 4-6 sentences max. No bullet points. Write like you're texting a friend who's overwhelmed.
+    const briefingPrompt = `You're briefing Corey right now as he opens his portal. You have LIVE data below.
+
+## INSTRUCTIONS
+Analyze ALL the data and produce a structured briefing. Be warm, specific, and direct.
+
+## RESPONSE FORMAT — STRICT JSON ONLY
+Return ONLY a JSON object with these exact keys:
+{
+  "greeting": "Short warm greeting, 1 sentence max (e.g. 'Hey Corey — busy morning, let me catch you up.')",
+  "urgent": [
+    {"label": "short description of urgent item", "detail": "1 sentence context/action"}
+  ],
+  "overview": {
+    "emails": number or 0,
+    "texts": number or 0,
+    "missed_calls": number or 0,
+    "team_questions": number or 0
+  },
+  "items": [
+    {"label": "person or subject", "detail": "what they need / what it's about", "type": "email|text|call|question"}
+  ],
+  "next_step": "1 sentence: the single most important thing Corey should do first and why"
+}
+
+Rules:
+- "urgent" = things that need action RIGHT NOW. Max 2 items. Empty array if nothing urgent.
+- "items" = everything else worth mentioning, sorted by priority. Max 6 items.
+- Use real names and subjects from the data. Never invent.
+- If you know something from your memory about a patient or product, factor it in.
+
+Return ONLY the JSON object. No markdown fences, no explanation.
 
 ${liveContext}`;
 
-    const response = await oneShot(briefingPrompt);
-    res.json({ briefing: response, sources: { gmail: gmail.connected, ringcentral: rc.connected, questions: questions.length } });
+    const raw = await oneShot(briefingPrompt);
+    let parsed;
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = null;
+    }
+
+    res.json({
+      briefing: parsed ? null : raw,
+      structured: parsed ? {
+        greeting: parsed.greeting || '',
+        urgent: parsed.urgent || [],
+        overview: parsed.overview || {},
+        items: parsed.items || [],
+        next_step: parsed.next_step || '',
+      } : null,
+      sources: { gmail: gmail.connected, ringcentral: rc.connected, questions: questions.length }
+    });
   } catch (err) {
     console.error('Briefing error:', err);
     res.status(500).json({ error: 'Briefing failed', fallback: "Hey Corey - having trouble pulling your latest data, but your portal tiles below are loaded. Take a look and I'll catch up in a sec." });
