@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getDb } from '../db/init.js';
 import { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT } from '../config/elena-personality.js';
+import { KNOWLEDGE_BASE } from '../config/elena-knowledge-base.js';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const PATIENT_DIRECTORY = require('../config/patient-directory.json');
 import { buildContextForMessage, logDecision, addFollowup, ingestContent } from './context.js';
 
 const anthropic = new Anthropic();
@@ -19,7 +23,11 @@ export async function chat(userMessage, contextModule = null) {
   ).all().reverse();
 
   // Build system prompt with live context
-  let systemPrompt = ELENA_SYSTEM_PROMPT + contextBlock;
+  let systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE + contextBlock;
+
+  // Check if any known patients are mentioned
+  const patientContext = findPatientContext(userMessage);
+  if (patientContext) systemPrompt += patientContext;
 
   if (contextModule) {
     systemPrompt += `\n\nCorey is currently in the ${contextModule} module of the portal.`;
@@ -137,4 +145,34 @@ async function detectAndLogActions(responseText) {
   } catch (err) {
     // Non-critical — don't fail the main flow
   }
+}
+
+// Search patient directory for mentions in user message
+function findPatientContext(message) {
+  const msgLower = message.toLowerCase();
+  const matches = [];
+
+  for (const [name, info] of Object.entries(PATIENT_DIRECTORY)) {
+    const nameLower = name.toLowerCase();
+    // Check first name, last name, or full name
+    const parts = nameLower.split(/\s+/);
+    const isMatch = parts.some(part => part.length > 2 && msgLower.includes(part)) || msgLower.includes(nameLower);
+
+    if (isMatch) {
+      const recent = info.recent_messages || [];
+      const lastMsgs = recent.slice(-3).map(m =>
+        m.dir + ' (' + (m.time || '').substring(0, 10) + '): ' + (m.text || '').substring(0, 150)
+      ).join('\n  ');
+
+      matches.push(
+        '\n- **' + name + '** | ' + info.total_msgs + ' messages, ' + info.conversations +
+        ' convos | First: ' + (info.first_contact || '?').substring(0, 10) +
+        ' | Last: ' + (info.last_contact || '?').substring(0, 10) +
+        '\n  Recent:\n  ' + lastMsgs
+      );
+    }
+  }
+
+  if (matches.length === 0) return null;
+  return '\n\n## PATIENT HISTORY (from SMS records)\n' + matches.join('\n');
 }
