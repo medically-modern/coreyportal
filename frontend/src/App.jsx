@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { initFocusBlur } from './hooks/useFocusBlur';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Layout/Sidebar';
 import TopBar from './components/Layout/TopBar';
@@ -31,6 +32,7 @@ function DashboardWithNav() {
 }
 
 export default function App() {
+  useEffect(() => { initFocusBlur(); }, []);
   return (
     <Routes>
       {/* Employee submission page — standalone, no sidebar */}

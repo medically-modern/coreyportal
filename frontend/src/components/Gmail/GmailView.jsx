@@ -16,7 +16,7 @@ function ThreadRow({ thread, onSelect, selected }) {
   const unread = thread.isUnread || thread.unread;
   return (
     <div
-      onClick={() => onSelect(thread)}
+      data-focus-item="" onClick={() => onSelect(thread)}
       className={`flex items-start gap-3 p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''} ${unread ? 'bg-blue-500/5' : ''}`}
     >
       <div className="pt-1.5 shrink-0">
@@ -158,7 +158,7 @@ export default function GmailView() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0">
+        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
           {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
           {filteredThreads.length === 0 && !loading && (
             <p className="text-sm text-surface-200/40 p-4">No emails found.</p>

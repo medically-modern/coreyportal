@@ -111,12 +111,12 @@ export default function SlackView() {
       </form>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0">
+        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
           {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
           {channelList.map((ch, i) => (
             <div
               key={ch.id || i}
-              onClick={() => selectChannel(ch)}
+              data-focus-item="" onClick={() => selectChannel(ch)}
               className={`flex items-center justify-between p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected?.id === ch.id ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''}`}
             >
               <div className="flex items-center gap-2 min-w-0">

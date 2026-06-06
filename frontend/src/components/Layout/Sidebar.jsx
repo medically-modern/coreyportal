@@ -10,7 +10,7 @@ const NAV = [
   { to: '/gmail', icon: Mail, label: 'Email' },
   { to: '/ringcentral', icon: Phone, label: 'Texts & Calls' },
   { to: '/slack', icon: MessageSquare, label: 'Slack' },
-  { to: '/qa', icon: HelpCircle, label: 'Team Questions' },
+  { to: '/questions', icon: HelpCircle, label: 'Team Questions' },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {

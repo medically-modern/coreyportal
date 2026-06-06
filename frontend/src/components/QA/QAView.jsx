@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, Loader, Send, X, Clock, User, Tag, AlertTriangle, ArrowUpDown } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { RefreshCw, Loader, Send, X, User, Tag, ArrowUpDown } from 'lucide-react';
 import { api } from '../../services/api';
 
 const URGENCY_CONFIG = {
-  emergency:  { label: 'EMERGENCY', bg: 'bg-red-700',    border: 'border-red-700',    text: 'text-red-100',    dot: 'bg-red-500',    glow: 'shadow-red-500/20',  order: 0 },
-  super_high: { label: 'SUPER HIGH', bg: 'bg-red-600/80', border: 'border-red-600',    text: 'text-red-100',    dot: 'bg-red-400',    glow: 'shadow-red-400/20',  order: 1 },
-  high:       { label: 'HIGH',       bg: 'bg-orange-600/60', border: 'border-orange-500', text: 'text-orange-100', dot: 'bg-orange-400', glow: 'shadow-orange-400/15', order: 2 },
-  medium:     { label: 'MEDIUM',     bg: 'bg-amber-600/40', border: 'border-amber-500/50', text: 'text-amber-100', dot: 'bg-amber-400', glow: 'shadow-amber-400/10', order: 3 },
-  low:        { label: 'LOW',        bg: 'bg-blue-600/30', border: 'border-blue-500/30', text: 'text-blue-200',  dot: 'bg-blue-400',  glow: '',                    order: 4 },
-  very_low:   { label: 'VERY LOW',   bg: 'bg-slate-600/20', border: 'border-slate-500/20', text: 'text-slate-300', dot: 'bg-slate-400', glow: '',                   order: 5 },
-  normal:     { label: 'NORMAL',     bg: 'bg-surface-200/10', border: 'border-surface-200/10', text: 'text-surface-200/60', dot: 'bg-surface-200/40', glow: '',    order: 3 },
+  emergency:  { label: 'EMERGENCY', bg: 'bg-red-700',       border: 'border-red-700',       text: 'text-red-100',    dot: 'bg-red-500',    glow: 'shadow-lg shadow-red-500/20',    order: 0 },
+  super_high: { label: 'SUPER HIGH', bg: 'bg-red-600/80',    border: 'border-red-600',       text: 'text-red-100',    dot: 'bg-red-400',    glow: 'shadow-lg shadow-red-400/20',    order: 1 },
+  high:       { label: 'HIGH',       bg: 'bg-orange-600/60', border: 'border-orange-500',    text: 'text-orange-100', dot: 'bg-orange-400', glow: 'shadow-lg shadow-orange-400/15', order: 2 },
+  medium:     { label: 'MEDIUM',     bg: 'bg-amber-600/40',  border: 'border-amber-500/50',  text: 'text-amber-100',  dot: 'bg-amber-400', glow: '',                               order: 3 },
+  low:        { label: 'LOW',        bg: 'bg-blue-600/30',   border: 'border-blue-500/30',   text: 'text-blue-200',   dot: 'bg-blue-400',  glow: '',                               order: 4 },
+  very_low:   { label: 'VERY LOW',   bg: 'bg-slate-600/20',  border: 'border-slate-500/20',  text: 'text-slate-300',  dot: 'bg-slate-400', glow: '',                               order: 5 },
+  normal:     { label: 'NORMAL',     bg: 'bg-surface-200/5', border: 'border-surface-200/10',text: 'text-surface-200/60', dot: 'bg-surface-200/40', glow: '',                       order: 3 },
 };
 
 function getUrgency(q) {
@@ -26,12 +26,12 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function QuestionCard({ q, onClick }) {
+function QuestionCard({ q, onClick, isDeepFocused }) {
   const u = getUrgency(q);
   return (
     <div
       onClick={() => onClick(q)}
-      className={`group rounded-xl border-2 ${u.border} ${u.bg} p-4 cursor-pointer transition-all hover:scale-[1.01] ${u.glow ? `shadow-lg ${u.glow}` : ''}`}
+      data-focus-item="" className={`rounded-xl border-2 ${u.border} ${u.bg} p-4 cursor-pointer transition-all hover:scale-[1.02] ${u.glow}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 shrink-0">
@@ -41,7 +41,9 @@ function QuestionCard({ q, onClick }) {
         <span className="text-xs text-surface-200/30">{timeAgo(q.created_at)}</span>
       </div>
 
-      <h3 className="text-base font-bold mt-2 leading-snug">{q.headline || q.question?.split('\n')[0]?.slice(0, 60) || 'No headline'}</h3>
+      <h3 className="text-base font-bold mt-2 leading-snug">
+        {q.headline || q.question?.split('\n')[0]?.slice(0, 60) || 'No headline'}
+      </h3>
 
       <div className="flex items-center gap-3 mt-3 text-xs text-surface-200/40">
         <span className="flex items-center gap-1"><User size={11} /> {q.from_name || 'Team'}</span>
@@ -66,7 +68,6 @@ function FocusModal({ question, onClose, onAnswer }) {
     setSubmitting(false);
   }
 
-  // Parse question text to separate patient info, main question, and context
   const qText = question.question || '';
   const patientMatch = qText.match(/^\[Patient: ([^\]]+)\]\s*/);
   const patientName = patientMatch ? patientMatch[1] : null;
@@ -77,29 +78,22 @@ function FocusModal({ question, onClose, onAnswer }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
-      {/* Blur overlay */}
       <div className="absolute inset-0 bg-surface-900/80 backdrop-blur-md" onClick={onClose} />
 
-      {/* Modal */}
       <div className={`relative w-full max-w-lg rounded-2xl border-2 ${u.border} bg-surface-800 shadow-2xl overflow-hidden`}>
-        {/* Urgency banner */}
         <div className={`${u.bg} px-6 py-3 flex items-center justify-between`}>
           <div className="flex items-center gap-2">
             <span className={`w-3 h-3 rounded-full ${u.dot} animate-pulse`} />
             <span className={`text-sm font-black uppercase tracking-wider ${u.text}`}>{u.label}</span>
           </div>
-          <button onClick={onClose} className="text-surface-200/40 hover:text-white transition">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="text-surface-200/40 hover:text-white transition"><X size={20} /></button>
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Headline */}
           <h2 className="text-xl font-bold leading-tight">
             {question.headline || mainQuestion?.slice(0, 80)}
           </h2>
 
-          {/* Who + When + Category — clear, spaced */}
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="bg-surface-200/5 rounded-lg px-3 py-2">
               <p className="text-xs text-surface-200/30 mb-0.5">From</p>
@@ -115,7 +109,6 @@ function FocusModal({ question, onClose, onAnswer }) {
             </div>
           </div>
 
-          {/* Patient (if applicable) */}
           {patientName && (
             <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg px-4 py-3">
               <p className="text-xs text-brand-400 mb-1 font-medium">Patient</p>
@@ -123,7 +116,6 @@ function FocusModal({ question, onClose, onAnswer }) {
             </div>
           )}
 
-          {/* The actual question — broken into readable chunks */}
           <div>
             <p className="text-xs text-surface-200/30 mb-2 uppercase tracking-wider font-medium">Details</p>
             <div className="text-sm text-surface-200/80 leading-relaxed space-y-3">
@@ -133,7 +125,6 @@ function FocusModal({ question, onClose, onAnswer }) {
             </div>
           </div>
 
-          {/* Context (if provided) */}
           {context && (
             <div className="bg-surface-200/5 rounded-lg px-4 py-3">
               <p className="text-xs text-surface-200/30 mb-2 uppercase tracking-wider font-medium">Background Context</p>
@@ -145,7 +136,6 @@ function FocusModal({ question, onClose, onAnswer }) {
             </div>
           )}
 
-          {/* Answer section */}
           {question.answer ? (
             <div className="bg-good/10 border border-good/20 rounded-lg px-4 py-3">
               <p className="text-xs text-good mb-2 font-medium">Your Answer</p>
@@ -176,26 +166,38 @@ export default function QAView() {
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending');
-  const [sortBy, setSortBy] = useState('urgency'); // urgency | person | category | newest
+  const [sortBy, setSortBy] = useState('urgency');
   const [focused, setFocused] = useState(null);
+  const [deepFocused, setDeepFocused] = useState(false);
+  const hoverTimer = useRef(null);
 
   async function loadQuestions() {
     setLoading(true);
     try {
       const data = await api.questions(filter);
       setQuestions(data.questions || data || []);
-    } catch (e) {}
+    } catch (e) {
+      console.error('QA load error:', e);
+    }
     setLoading(false);
   }
 
   useEffect(() => { loadQuestions(); }, [filter]);
 
+  // Progressive blur: after hovering 3 seconds, deepen the blur
+  const handleCardHover = useCallback(() => {
+    setDeepFocused(false);
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setDeepFocused(true), 3000);
+  }, []);
+
+  const handleCardLeave = useCallback(() => {
+    setDeepFocused(false);
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
+
   const sorted = [...questions].sort((a, b) => {
-    if (sortBy === 'urgency') {
-      const ua = getUrgency(a).order;
-      const ub = getUrgency(b).order;
-      return ua - ub;
-    }
+    if (sortBy === 'urgency') return getUrgency(a).order - getUrgency(b).order;
     if (sortBy === 'person') return (a.from_name || '').localeCompare(b.from_name || '');
     if (sortBy === 'category') return (a.tag || '').localeCompare(b.tag || '');
     if (sortBy === 'newest') return new Date(b.created_at) - new Date(a.created_at);
@@ -211,20 +213,20 @@ export default function QAView() {
         </button>
       </div>
 
-      {/* Filters */}
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-2">
           {['pending', 'answered', 'all'].map(f => (
-            <button key={f} onClick={() => setFilter(f)} className={`text-xs px-3 py-1.5 rounded-full transition capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
+            <button key={f} onClick={() => setFilter(f)}
+              className={`text-xs px-3 py-1.5 rounded-full transition capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60 hover:text-white'}`}>
               {f}
             </button>
           ))}
         </div>
-
         <div className="flex items-center gap-1 text-xs text-surface-200/40">
           <ArrowUpDown size={12} />
           {['urgency', 'person', 'category', 'newest'].map(s => (
-            <button key={s} onClick={() => setSortBy(s)} className={`px-2 py-1 rounded transition capitalize ${sortBy === s ? 'bg-surface-200/10 text-white' : 'hover:text-white'}`}>
+            <button key={s} onClick={() => setSortBy(s)}
+              className={`px-2 py-1 rounded transition capitalize ${sortBy === s ? 'bg-surface-200/10 text-white' : 'hover:text-white'}`}>
               {s}
             </button>
           ))}
@@ -233,10 +235,12 @@ export default function QAView() {
 
       {loading && <div className="flex justify-center py-12"><Loader size={24} className="animate-spin text-brand-500" /></div>}
 
-      {/* Card grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 focus-group">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-focus-group
+        onMouseLeave={handleCardLeave}>
         {sorted.map((q, i) => (
-          <QuestionCard key={q.id || i} q={q} onClick={setFocused} />
+          <div key={q.id || i} onMouseEnter={handleCardHover} onMouseLeave={handleCardLeave}>
+            <QuestionCard q={q} onClick={setFocused} isDeepFocused={deepFocused} />
+          </div>
         ))}
       </div>
 
@@ -246,7 +250,6 @@ export default function QAView() {
         </div>
       )}
 
-      {/* Focus modal */}
       {focused && (
         <FocusModal
           question={focused}

@@ -15,7 +15,7 @@ function timeAgo(dateStr) {
 
 function ChannelBucket({ icon: Icon, label, color, bgColor, count, items, loading, onDrilldown }) {
   return (
-    <div className={`rounded-2xl border-2 ${bgColor} p-6 transition-all hover:scale-[1.01]`}>
+    <div data-focus-item="" className={`rounded-2xl border-2 ${bgColor} p-6 transition-all hover:scale-[1.01]`}>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={`w-12 h-12 rounded-xl ${color} bg-opacity-20 flex items-center justify-center`}>
@@ -263,7 +263,7 @@ export default function Dashboard({ onNavigate }) {
       </div>
 
       {/* Channel Buckets — big, visual, simple */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-focus-group>
         <ChannelBucket
           icon={Mail}
           label="Email"
