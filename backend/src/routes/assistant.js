@@ -64,14 +64,46 @@ router.post('/focus-context', async (req, res) => {
     // Pull real conversation history based on channel
     if (item.channel === 'rc' && item.from) {
       try {
-        const { getConversationMessages } = await import('../services/ringcentral.js');
-        // Extract phone number — item.from might be a name or phone
+        const { getTextConversations, getConversationMessages } = await import('../services/ringcentral.js');
         const phone = /^\+?\d/.test(item.from) ? item.from : null;
         if (phone) {
-          const messages = await getConversationMessages(phone, 20);
+          let messages = [];
+
+          // Strategy 1: Try direct phoneNumber filter
+          try {
+            messages = await getConversationMessages(phone, 20);
+          } catch (e) {
+            console.error('RC direct lookup failed:', e.message);
+          }
+
+          // Strategy 2: If direct lookup returned nothing, pull all recent
+          // conversations and find the matching one by phone number
+          if (messages.length === 0) {
+            try {
+              const convos = await getTextConversations(100, 30);
+              // Find conversation matching this phone number (try multiple formats)
+              const phoneDigits = phone.replace(/\D/g, '');
+              const match = convos.find(c => {
+                const contactDigits = (c.contact || '').replace(/\D/g, '');
+                return contactDigits === phoneDigits
+                  || contactDigits.endsWith(phoneDigits.slice(-10))
+                  || phoneDigits.endsWith(contactDigits.slice(-10));
+              });
+              if (match && match.messages) {
+                messages = match.messages.map(m => ({
+                  direction: m.direction,
+                  text: m.text,
+                  time: m.time,
+                }));
+              }
+            } catch (e2) {
+              console.error('RC conversation scan failed:', e2.message);
+            }
+          }
+
           if (messages.length > 0) {
             conversationHistory = '\n\nFULL SMS CONVERSATION HISTORY (most recent first):\n';
-            for (const msg of messages) {
+            for (const msg of messages.slice(0, 20)) {
               const dir = msg.direction === 'Inbound' ? 'THEM' : 'US';
               conversationHistory += `[${dir}] ${msg.text} (${msg.time})\n`;
             }
@@ -120,6 +152,33 @@ router.post('/focus-context', async (req, res) => {
       } catch {}
     }
 
+    // Monday.com patient lookup — search by phone number or patient name
+    let mondayContext = '';
+    try {
+      const { searchMondayPatient } = await import('./monday.js');
+      // Try phone number first, then patient name
+      const mondayQuery = item.from || patientName || '';
+      if (mondayQuery) {
+        const mondayResults = await searchMondayPatient(mondayQuery);
+        if (mondayResults && mondayResults.length > 0) {
+          mondayContext = '\n\nMONDAY.COM PATIENT RECORDS:\n';
+          for (const r of mondayResults.slice(0, 3)) {
+            mondayContext += `Patient: ${r.name} | Board: ${r.board} | Stage: ${r.group}\n`;
+            const cols = Object.entries(r.columns || {}).slice(0, 8);
+            if (cols.length > 0) {
+              mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`;
+            }
+          }
+          // If we didn't find patient name from RC, use Monday name
+          if (!patientName && mondayResults[0]?.name) {
+            patientName = mondayResults[0].name;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Monday patient lookup error:', e.message);
+    }
+
     const { chat: elenaChat } = await import('../services/claude.js');
     const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
 
@@ -138,7 +197,7 @@ From: ${item.from || 'Unknown'}
 Subject: ${item.subject || ''}
 Text: ${item.text || ''}
 Time: ${item.time || ''}
-${conversationHistory}${entityContext}
+${conversationHistory}${entityContext}${mondayContext}
 
 Give Corey:
 1. A 1-sentence summary of what this is about (use the patient name if found)
