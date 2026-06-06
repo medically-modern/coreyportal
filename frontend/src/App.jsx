@@ -9,6 +9,7 @@ import QAView from './components/QA/QAView';
 import RingCentralView from './components/RingCentral/RingCentralView';
 import SlackView from './components/Slack/SlackView';
 import AssistantView from './components/Assistant/AssistantView';
+import ProjectsView from './components/Projects/ProjectsView';
 import SubmitView from './components/Submit/SubmitView';
 import ParkingLot from './components/Focus/ParkingLot';
 import HyperfocusGuard from './components/Focus/HyperfocusGuard';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="/questions" element={<QAView />} />
             <Route path="/ringcentral" element={<RingCentralView />} />
             <Route path="/slack" element={<SlackView />} />
+            <Route path="/projects" element={<ProjectsView />} />
             <Route path="/assistant" element={<AssistantView />} />
           </Routes>
         </PortalLayout>

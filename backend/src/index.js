@@ -15,6 +15,7 @@ import dashboardRoutes from './routes/dashboard.js';
 import contextRoutes from './routes/context.js';
 import ingestRoutes from './routes/ingest.js';
 import notesRoutes from './routes/notes.js';
+import projectRoutes from './routes/projects.js';
 
 config();
 
@@ -62,6 +63,7 @@ app.use('/api/assistant', assistantRoutes);
 app.use('/api/context', contextRoutes);
 app.use('/api/elena', ingestRoutes);
 app.use('/api/notes', notesRoutes);
+app.use('/api/projects', projectRoutes);
 
 // Init DB and start
 initDb();

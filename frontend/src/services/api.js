@@ -71,4 +71,15 @@ export const api = {
   notesGet: () => request('/notes'),
   notesCreate: (text) => request('/notes', { method: 'POST', body: JSON.stringify({ text }) }),
   notesDelete: (id) => request(`/notes/${id}`, { method: 'DELETE' }),
+
+  // Projects
+  projectsList: () => request('/projects'),
+  projectCreate: (name, color) => request('/projects', { method: 'POST', body: JSON.stringify({ name, color }) }),
+  projectDelete: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+  projectUpdate: (id, data) => request(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  projectBoard: (id) => request(`/projects/${id}/board`),
+  projectTaskCreate: (projectId, data) => request(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
+  projectTaskUpdate: (projectId, taskId, data) => request(`/projects/${projectId}/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  projectTaskDelete: (projectId, taskId) => request(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
+  projectTaskMove: (projectId, taskId, data) => request(`/projects/${projectId}/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify(data) }),
 };
