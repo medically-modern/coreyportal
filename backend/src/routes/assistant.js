@@ -50,6 +50,109 @@ router.get('/decisions', (req, res) => {
   }
 });
 
+// Focus context — Elena analyzes a single item with REAL conversation history
+router.post('/focus-context', async (req, res) => {
+  try {
+    const { item } = req.body;
+    if (!item) return res.status(400).json({ error: 'item required' });
+
+    let conversationHistory = '';
+    let patientName = '';
+
+    // Pull real conversation history based on channel
+    if (item.channel === 'rc' && item.from) {
+      try {
+        const { getConversationMessages } = await import('../services/ringcentral.js');
+        // Extract phone number — item.from might be a name or phone
+        const phone = /^\+?\d/.test(item.from) ? item.from : null;
+        if (phone) {
+          const messages = await getConversationMessages(phone, 20);
+          if (messages.length > 0) {
+            conversationHistory = '\n\nFULL SMS CONVERSATION HISTORY (most recent first):\n';
+            for (const msg of messages) {
+              const dir = msg.direction === 'Inbound' ? 'THEM' : 'US';
+              conversationHistory += `[${dir}] ${msg.text} (${msg.time})\n`;
+            }
+            // Extract patient name from our outbound messages
+            for (const msg of messages) {
+              if (msg.direction === 'Outbound' && msg.text) {
+                const nameMatch = msg.text.match(/^(?:Hey|Dear|Hi)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+                if (nameMatch) {
+                  patientName = nameMatch[1];
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('RC context fetch error:', e.message);
+      }
+    } else if (item.channel === 'email' && item.threadId) {
+      try {
+        const { getThread } = await import('../services/gmail.js');
+        const thread = await getThread(item.threadId);
+        if (thread && thread.messages) {
+          conversationHistory = '\n\nFULL EMAIL THREAD:\n';
+          for (const msg of thread.messages) {
+            conversationHistory += `From: ${msg.from} | Subject: ${msg.subject}\n${msg.body?.substring(0, 500) || ''}\n---\n`;
+          }
+        }
+      } catch (e) {
+        console.error('Gmail context fetch error:', e.message);
+      }
+    }
+
+    // Check entities DB for additional context
+    let entityContext = '';
+    const searchTerm = patientName || item.from || '';
+    if (searchTerm) {
+      try {
+        const entities = searchEntities(searchTerm);
+        if (entities && entities.length > 0) {
+          entityContext = '\n\nKNOWN ENTITY INFO:\n';
+          for (const e of entities) {
+            entityContext += `${e.name}: ${e.details || e.type || ''}\n`;
+          }
+        }
+      } catch {}
+    }
+
+    const { chat: elenaChat } = await import('../services/claude.js');
+    const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
+
+CRITICAL RULES:
+- You have the FULL conversation history below. READ IT CAREFULLY to understand context.
+- The patient's name is almost always in our OUTBOUND messages (we text "Hey [Name], ..."). Find it.
+- NEVER fabricate context. If you don't know something, say so.
+- NEVER guess what a message is about if the history doesn't tell you.
+- Be specific: use the patient's name, mention what product/device is being discussed.
+
+${patientName ? `PATIENT NAME FOUND: ${patientName}` : ''}
+
+ITEM:
+Channel: ${item.channel}
+From: ${item.from || 'Unknown'}
+Subject: ${item.subject || ''}
+Text: ${item.text || ''}
+Time: ${item.time || ''}
+${conversationHistory}${entityContext}
+
+Give Corey:
+1. A 1-sentence summary of what this is about (use the patient name if found)
+2. What he should do next (be specific)
+3. Urgency level: 🔴 Do Now, 🟡 Today, 🟢 Can Wait
+
+Keep it to 2-3 sentences. Be warm but direct.`;
+
+    const response = await elenaChat(prompt, 'focus-context');
+    res.json({ context: response });
+  } catch (err) {
+    console.error('Focus context error:', err);
+    res.status(500).json({ error: 'Context unavailable' });
+  }
+});
+
 export default router;
 
 // Elena's live briefing — fetches ALL unread Gmail (30 days) + RC texts (3 days) before generating
