@@ -60,13 +60,11 @@ export async function searchMondayPatient(query) {
       'Authorization': process.env.MONDAY_API_TOKEN,
     };
 
-    // Fetch all items from all boards with pagination
-    const boards = [];
-    for (const boardId of boardIds) {
+    // Fetch all items from all boards IN PARALLEL with pagination
+    async function fetchBoard(boardId) {
       let cursor = null;
       let allItems = [];
 
-      // First page
       const firstRes = await fetch(MONDAY_API, {
         method: 'POST',
         headers,
@@ -89,16 +87,15 @@ export async function searchMondayPatient(query) {
       const firstData = await firstRes.json();
       if (firstData.errors) {
         console.error(`Monday API error for board ${boardId}:`, firstData.errors);
-        continue;
+        return null;
       }
       const board = firstData.data?.boards?.[0];
-      if (!board) continue;
+      if (!board) return null;
 
       const page1 = board.items_page || {};
       allItems = page1.items || [];
       cursor = page1.cursor;
 
-      // Paginate if there are more items
       while (cursor) {
         const nextRes = await fetch(MONDAY_API, {
           method: 'POST',
@@ -120,12 +117,16 @@ export async function searchMondayPatient(query) {
         const nextPage = nextData.data?.next_items_page || {};
         allItems = allItems.concat(nextPage.items || []);
         cursor = nextPage.cursor;
-        // Safety cap
         if (allItems.length > 2000) break;
       }
 
-      boards.push({ id: board.id, name: board.name, items: allItems });
+      return { id: board.id, name: board.name, items: allItems };
     }
+
+    const boardResults = await Promise.allSettled(boardIds.map(id => fetchBoard(id)));
+    const boards = boardResults
+      .filter(r => r.status === 'fulfilled' && r.value)
+      .map(r => r.value);
 
     // Normalize the query for matching
     const queryDigits = query.replace(/\D/g, '');
