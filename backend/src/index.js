@@ -13,6 +13,7 @@ import mondayRoutes from './routes/monday.js';
 import assistantRoutes from './routes/assistant.js';
 import dashboardRoutes from './routes/dashboard.js';
 import contextRoutes from './routes/context.js';
+import ingestRoutes from './routes/ingest.js';
 
 config();
 
@@ -52,6 +53,7 @@ app.use('/api/qa', qaRoutes);
 app.use('/api/monday', mondayRoutes);
 app.use('/api/assistant', assistantRoutes);
 app.use('/api/context', contextRoutes);
+app.use('/api/elena', ingestRoutes);
 
 // Init DB and start
 initDb();

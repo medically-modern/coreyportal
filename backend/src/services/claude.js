@@ -6,6 +6,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const PATIENT_DIRECTORY = require('../config/patient-directory.json');
 import { buildContextForMessage, logDecision, addFollowup, ingestContent } from './context.js';
+import { buildLearnedContext, processForLearning } from './memory.js';
 
 const anthropic = new Anthropic();
 
@@ -24,6 +25,10 @@ export async function chat(userMessage, contextModule = null) {
 
   // Build system prompt with live context
   let systemPrompt = ELENA_SYSTEM_PROMPT + '\n\n' + KNOWLEDGE_BASE + contextBlock;
+
+  // Add Elena's learned memory
+  const learnedMemory = buildLearnedContext(userMessage);
+  if (learnedMemory) systemPrompt += learnedMemory;
 
   // Check if any known patients are mentioned
   const patientContext = findPatientContext(userMessage);
@@ -58,6 +63,9 @@ export async function chat(userMessage, contextModule = null) {
 
   // Detect if Elena suggested a decision or follow-up (async, non-blocking)
   detectAndLogActions(assistantMessage).catch(() => {});
+
+  // Process for learning (async, non-blocking)
+  processForLearning(userMessage, assistantMessage).catch(() => {});
 
   return assistantMessage;
 }

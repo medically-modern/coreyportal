@@ -100,6 +100,23 @@ export function initDb() {
       completed_at TEXT
     );
 
+    
+    -- Elena's learned facts (persistent memory from conversations)
+    CREATE TABLE IF NOT EXISTS learned_facts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      fact TEXT NOT NULL,
+      source TEXT DEFAULT 'conversation',
+      confidence TEXT DEFAULT 'confirmed',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Create index for fast lookup
+    CREATE INDEX IF NOT EXISTS idx_learned_subject ON learned_facts(subject);
+    CREATE INDEX IF NOT EXISTS idx_learned_category ON learned_facts(category);
+
     -- Settings (OAuth tokens, config)
 CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
