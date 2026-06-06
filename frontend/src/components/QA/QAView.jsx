@@ -26,7 +26,7 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function QuestionCard({ q, onClick, isDeepFocused }) {
+function QuestionCard({ q, onClick, onRestore }) {
   const u = getUrgency(q);
   return (
     <div
@@ -166,13 +166,6 @@ export default function QAView() {
   }
 
   useEffect(() => { loadQuestions(); }, [filter]);
-
-
-
-  const handleCardLeave = useCallback(() => {
-    setDeepFocused(false);
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-  }, []);
 
   const sorted = [...questions].sort((a, b) => {
     if (sortBy === 'urgency') return getUrgency(a).order - getUrgency(b).order;
