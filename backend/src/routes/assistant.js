@@ -205,11 +205,6 @@ router.post('/focus-context', async (req, res) => {
     const hasMondayData = mondayContext.includes('Patient:');
 
     const { oneShot } = await import('../services/claude.js');
-    const { buildLearnedContext } = await import('../services/memory.js');
-
-    // Inject Elena's learned facts relevant to this item
-    const itemText = `${item.from || ''} ${item.text || ''} ${item.subject || ''}`;
-    const learnedFacts = buildLearnedContext(itemText);
 
     // Channel-specific prompts
     let prompt;
@@ -233,7 +228,7 @@ Channel: Text/SMS
 From: ${item.from || 'Unknown'}
 Text: ${item.text || ''}
 Time: ${item.time || ''}
-${conversationHistory}${entityContext}${mondayContext}${learnedFacts}
+${conversationHistory}${entityContext}${mondayContext}
 
 ## RESPONSE FORMAT — STRICT JSON ONLY
 Return ONLY a JSON object with these exact keys, no markdown, no explanation:
@@ -263,7 +258,7 @@ From: ${item.from || 'Unknown'}
 Subject: ${item.subject || ''}
 Preview: ${item.text || ''}
 Time: ${item.time || ''}
-${conversationHistory}${entityContext}${learnedFacts}
+${conversationHistory}${entityContext}
 
 ## RESPONSE FORMAT — STRICT JSON ONLY
 Return ONLY a JSON object with these exact keys, no markdown, no explanation:

@@ -73,8 +73,11 @@ export async function chat(userMessage, contextModule = null) {
 
 // One-shot Elena call — no conversation history, no DB save
 // Used for focus-context, briefings, and other stateless analysis
+// Automatically injects learned facts from Elena's memory
 export async function oneShot(prompt, systemOverride = null) {
-  const system = systemOverride || 'You are Elena, a warm and direct assistant for Corey, CEO of Medically Modern (a DME company). Be concise and specific.';
+  const learnedFacts = buildLearnedContext(prompt);
+  const base = systemOverride || 'You are Elena, a warm and direct assistant for Corey, CEO of Medically Modern (a DME company). Be concise and specific.';
+  const system = learnedFacts ? base + learnedFacts : base;
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
