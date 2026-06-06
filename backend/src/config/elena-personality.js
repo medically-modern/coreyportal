@@ -23,14 +23,14 @@ Every response starts with one bolded sentence: the thing Corey needs to know or
 
 ### 3. ALWAYS END WITH A CLEAR ACTION
 Every response ends with exactly what Corey should do next. Not "consider" or "think about" — a specific action:
-- "Reply to Mike: [draft here]"  
+- "Reply to Mike: [draft here]"
 - "Approve this — say 'yes' and I'll handle it"
 - "Nothing needed — I'm tracking this"
 
 ### 4. CONNECT THE DOTS — THIS IS YOUR SUPERPOWER
 You have access to context from Gmail, Slack, RingCentral texts, employee Q&A, and Monday.com. When something comes up:
 - Instantly cross-reference the patient/person/issue across ALL channels
-- Surface related history: "This is the same patient Sarah texted about on Tuesday"  
+- Surface related history: "This is the same patient Sarah texted about on Tuesday"
 - Flag patterns: "This is the 3rd shipping complaint this week — might be a warehouse issue"
 - Never make Corey hunt for context. YOU bring the context.
 
@@ -90,40 +90,43 @@ When Corey faces a decision:
 
 You are Elena. You make Corey's ADHD a non-issue by being the structured, reliable, always-on brain extension he needs. The business runs better because you're here.`;
 
-export const ELENA_CONTEXT_PROMPT = (context) => {
+export function buildContextPrompt(context) {
   if (!context || Object.keys(context).length === 0) return '';
-  
-  let prompt = '\n\n## ACTIVE CONTEXT (what you currently know)\n';
-  
-  if (context.relatedEntities?.length > 0) {
-    prompt += '\n### Related People/Patients:\n';
-    context.relatedEntities.forEach(e => {
-      prompt += \`- **\${e.name}** (\${e.type}): \${e.summary}\n\`;
-    });
-  }
-  
-  if (context.recentDecisions?.length > 0) {
-    prompt += '\n### Recent Relevant Decisions:\n';
-    context.recentDecisions.forEach(d => {
-      prompt += \`- \${d.date}: \${d.summary}\n\`;
-    });
-  }
-  
-  if (context.activeIssues?.length > 0) {
-    prompt += '\n### Active Issues:\n';
-    context.activeIssues.forEach(i => {
-      prompt += \`- [\${i.channel}] \${i.summary} (since \${i.since})\n\`;
-    });
-  }
-  
-  if (context.pendingFollowups?.length > 0) {
-    prompt += '\n### Pending Follow-ups:\n';
-    context.pendingFollowups.forEach(f => {
-      prompt += \`- \${f.description} (due: \${f.due || 'ASAP'})\n\`;
-    });
-  }
-  
-  return prompt;
-};
 
-export default { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT };
+  let prompt = '\n\n## ACTIVE CONTEXT (what you currently know)\n';
+
+  if (context.relatedEntities && context.relatedEntities.length > 0) {
+    prompt += '\n### Related People/Patients:\n';
+    for (const e of context.relatedEntities) {
+      prompt += '- **' + e.name + '** (' + e.type + '): ' + e.summary + '\n';
+    }
+  }
+
+  if (context.recentDecisions && context.recentDecisions.length > 0) {
+    prompt += '\n### Recent Relevant Decisions:\n';
+    for (const d of context.recentDecisions) {
+      prompt += '- ' + d.date + ': ' + d.summary + '\n';
+    }
+  }
+
+  if (context.activeIssues && context.activeIssues.length > 0) {
+    prompt += '\n### Active Issues:\n';
+    for (const i of context.activeIssues) {
+      prompt += '- [' + i.channel + '] ' + i.summary + ' (since ' + i.since + ')\n';
+    }
+  }
+
+  if (context.pendingFollowups && context.pendingFollowups.length > 0) {
+    prompt += '\n### Pending Follow-ups:\n';
+    for (const f of context.pendingFollowups) {
+      prompt += '- ' + f.description + ' (due: ' + (f.due || 'ASAP') + ')\n';
+    }
+  }
+
+  return prompt;
+}
+
+// Keep backward-compatible export name
+export const ELENA_CONTEXT_PROMPT = buildContextPrompt;
+
+export default { ELENA_SYSTEM_PROMPT, ELENA_CONTEXT_PROMPT, buildContextPrompt };
