@@ -52,6 +52,56 @@ router.get('/decisions', (req, res) => {
   }
 });
 
+// Debug endpoint — returns raw RC + Monday data for a phone number (no Claude call)
+router.get('/debug-focus', async (req, res) => {
+  const phone = req.query.phone || '';
+  const debug = { phone, steps: [] };
+
+  // Step 1: Direct RC getConversationMessages
+  try {
+    const { getConversationMessages } = await import('../services/ringcentral.js');
+    const msgs = await getConversationMessages(phone, 10);
+    debug.steps.push({ step: 'RC direct lookup', count: msgs.length, sample: msgs.slice(0, 3) });
+  } catch (e) {
+    debug.steps.push({ step: 'RC direct lookup', error: e.message });
+  }
+
+  // Step 2: RC getTextConversations + phone match
+  try {
+    const { getTextConversations } = await import('../services/ringcentral.js');
+    const convos = await getTextConversations(100, 30);
+    const phoneDigits = phone.replace(/\D/g, '');
+    const allContacts = convos.map(c => c.contact);
+    const match = convos.find(c => {
+      const contactDigits = (c.contact || '').replace(/\D/g, '');
+      return contactDigits === phoneDigits
+        || contactDigits.endsWith(phoneDigits.slice(-10))
+        || phoneDigits.endsWith(contactDigits.slice(-10));
+    });
+    debug.steps.push({
+      step: 'RC convo scan',
+      totalConvos: convos.length,
+      allContacts: allContacts.slice(0, 30),
+      matchFound: !!match,
+      matchContact: match?.contact || null,
+      matchMessages: match ? match.messages.slice(0, 3) : [],
+    });
+  } catch (e) {
+    debug.steps.push({ step: 'RC convo scan', error: e.message });
+  }
+
+  // Step 3: Monday.com search
+  try {
+    const { searchMondayPatient } = await import('./monday.js');
+    const results = await searchMondayPatient(phone);
+    debug.steps.push({ step: 'Monday search', results: results || [] });
+  } catch (e) {
+    debug.steps.push({ step: 'Monday search', error: e.message });
+  }
+
+  res.json(debug);
+});
+
 // Focus context — Elena analyzes a single item with REAL conversation history
 router.post('/focus-context', async (req, res) => {
   try {
