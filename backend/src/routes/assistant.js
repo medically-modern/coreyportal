@@ -251,7 +251,7 @@ router.post('/focus-context', async (req, res) => {
     const hasConversationHistory = conversationHistory.length > 0;
     const hasMondayData = mondayContext.includes('Patient:');
 
-    const { chat: elenaChat } = await import('../services/claude.js');
+    const { oneShot } = await import('../services/claude.js');
     const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
 
 ## ABSOLUTE RULES — VIOLATION = SYSTEM FAILURE
@@ -285,7 +285,7 @@ ${mondaySearched && !hasMondayData ? 'IMPORTANT: Flag that this patient was not 
 
 Keep it to 2-3 sentences. Be warm but direct.`;
 
-    const response = await elenaChat(prompt, 'focus-context');
+    const response = await oneShot(prompt);
     res.json({ context: response });
   } catch (err) {
     console.error('Focus context error:', err);
@@ -456,7 +456,7 @@ router.post('/briefing', async (req, res) => {
       }
     }
 
-    const { chat: elenaChat } = await import('../services/claude.js');
+    const { oneShot } = await import('../services/claude.js');
     const briefingPrompt = `You're briefing Corey right now as he opens his portal. You have LIVE data below. Be warm, calm, and direct. Start with "Hey Corey -" and then:
 1. What's most PRESSING - unread emails and texts ARE his to-do list. Be specific with names and subjects.
 2. A calm overview: total unprocessed emails, unread texts, pending team questions, missed calls.
@@ -465,7 +465,7 @@ Keep it to 4-6 sentences max. No bullet points. Write like you're texting a frie
 
 ${liveContext}`;
 
-    const response = await elenaChat(briefingPrompt, 'dashboard-briefing');
+    const response = await oneShot(briefingPrompt);
     res.json({ briefing: response, sources: { gmail: gmail.connected, ringcentral: rc.connected, questions: questions.length } });
   } catch (err) {
     console.error('Briefing error:', err);

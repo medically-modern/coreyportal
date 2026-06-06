@@ -71,6 +71,19 @@ export async function chat(userMessage, contextModule = null) {
   return assistantMessage;
 }
 
+// One-shot Elena call — no conversation history, no DB save
+// Used for focus-context, briefings, and other stateless analysis
+export async function oneShot(prompt, systemOverride = null) {
+  const system = systemOverride || 'You are Elena, a warm and direct assistant for Corey, CEO of Medically Modern (a DME company). Be concise and specific.';
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 1024,
+    system,
+    messages: [{ role: 'user', content: prompt }]
+  });
+  return response.content[0].text;
+}
+
 // Summarize any content through Elena's lens
 export async function summarize(content, contentType = 'conversation') {
   const context = await buildContextForMessage(content);
