@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, Loader, Send, X, User, Tag, ArrowUpDown } from 'lucide-react';
+import { RefreshCw, Loader, X, User, Tag, ArrowUpDown } from 'lucide-react';
 import { api } from '../../services/api';
 
 const URGENCY_CONFIG = {
@@ -53,20 +53,10 @@ function QuestionCard({ q, onClick, isDeepFocused }) {
   );
 }
 
-function FocusModal({ question, onClose, onAnswer }) {
-  const [answer, setAnswer] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+function FocusModal({ question, onClose }) {
   const u = getUrgency(question);
 
-  async function handleAnswer() {
-    if (!answer.trim()) return;
-    setSubmitting(true);
-    try {
-      await api.answerQuestion(question.id, answer);
-      onAnswer();
-    } catch (e) {}
-    setSubmitting(false);
-  }
+
 
   const qText = question.question || '';
   const patientMatch = qText.match(/^\[Patient: ([^\]]+)\]\s*/);
@@ -136,26 +126,7 @@ function FocusModal({ question, onClose, onAnswer }) {
             </div>
           )}
 
-          {question.answer ? (
-            <div className="bg-good/10 border border-good/20 rounded-lg px-4 py-3">
-              <p className="text-xs text-good mb-2 font-medium">Your Answer</p>
-              <p className="text-sm text-surface-200/80">{question.answer}</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-xs text-surface-200/30 uppercase tracking-wider font-medium">Your Response</p>
-              <textarea
-                value={answer}
-                onChange={e => setAnswer(e.target.value)}
-                placeholder="Type your response..."
-                className="input w-full h-24 resize-none"
-              />
-              <button onClick={handleAnswer} disabled={submitting || !answer.trim()} className="btn-primary w-full flex items-center justify-center gap-2">
-                {submitting ? <Loader size={16} className="animate-spin" /> : <Send size={16} />}
-                {submitting ? 'Sending...' : 'Send Response'}
-              </button>
-            </div>
-          )}
+
         </div>
       </div>
     </div>
@@ -254,7 +225,7 @@ export default function QAView() {
         <FocusModal
           question={focused}
           onClose={() => setFocused(null)}
-          onAnswer={() => { setFocused(null); loadQuestions(); }}
+          
         />
       )}
     </div>
