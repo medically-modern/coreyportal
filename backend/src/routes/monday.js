@@ -120,17 +120,17 @@ export async function searchMondayPatient(query) {
 
     if (matches.length > 0) return matches;
 
-    // STEP 2: Phone search — query each board for ONLY phone-type columns
+    // STEP 2: Phone search — query ALL boards in PARALLEL for phone-type columns
     if (isPhoneSearch) {
-      for (const boardId of boardIds) {
-        // First get the board's phone column IDs
+      const boardResults = await Promise.allSettled(boardIds.map(async (boardId) => {
         const colRes = await fetch(MONDAY_API, { method: 'POST', headers,
           body: JSON.stringify({ query: `{ boards(ids: [${boardId}]) { name columns(types: [phone]) { id } items_page(limit: 500) { cursor items { id name group { title } column_values(types: [phone]) { id text } } } } }` })
         });
         const colData = await colRes.json();
         const board = colData.data?.boards?.[0];
-        if (!board) continue;
+        if (!board) return [];
 
+        const found = [];
         const searchItems = (items) => {
           for (const item of items) {
             for (const col of item.column_values || []) {
@@ -138,14 +138,14 @@ export async function searchMondayPatient(query) {
               if (!val) continue;
               const colDigits = val.replace(/\D/g, '');
               if (colDigits.length >= 10 && colDigits.slice(-10) === queryDigits.slice(-10)) {
-                matches.push({ name: item.name, board: board.name, group: item.group?.title || '', columns: {} });
+                found.push({ name: item.name, board: board.name, group: item.group?.title || '', columns: {} });
               }
             }
           }
         };
 
         searchItems(board.items_page?.items || []);
-        if (matches.length > 0) return matches;
+        if (found.length > 0) return found;
 
         // Paginate if overflow
         let cursor = board.items_page?.cursor;
@@ -156,8 +156,15 @@ export async function searchMondayPatient(query) {
           const d = await r.json();
           const page = d.data?.next_items_page || {};
           searchItems(page.items || []);
-          if (matches.length > 0) return matches;
+          if (found.length > 0) return found;
           cursor = page.cursor;
+        }
+        return found;
+      }));
+
+      for (const result of boardResults) {
+        if (result.status === 'fulfilled' && result.value.length > 0) {
+          matches.push(...result.value);
         }
       }
     }

@@ -207,13 +207,19 @@ router.post('/focus-context', async (req, res) => {
     }
 
     // Monday.com patient lookup — search by phone number or patient name
+    // Wrapped in 8-second timeout so it never blocks the response
     let mondayContext = '';
+    let mondayTimedOut = false;
+    let mondaySearched = false;
     try {
       const { searchMondayPatient } = await import('./monday.js');
-      // Try phone number first, then patient name
       const mondayQuery = item.from || patientName || '';
       if (mondayQuery) {
-        const mondayResults = await searchMondayPatient(mondayQuery);
+        mondaySearched = true;
+        const mondayResults = await Promise.race([
+          searchMondayPatient(mondayQuery),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Monday search timeout')), 8000))
+        ]);
         if (mondayResults && mondayResults.length > 0) {
           mondayContext = '\n\nMONDAY.COM PATIENT RECORDS:\n';
           for (const r of mondayResults.slice(0, 3)) {
@@ -223,29 +229,44 @@ router.post('/focus-context', async (req, res) => {
               mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`;
             }
           }
-          // If we didn't find patient name from RC, use Monday name
           if (!patientName && mondayResults[0]?.name) {
             patientName = mondayResults[0].name;
           }
+        } else {
+          mondayContext = '\n\n⚠️ MONDAY.COM: Patient NOT FOUND on any board. This may need follow-up.\n';
         }
       }
     } catch (e) {
-      console.error('Monday patient lookup error:', e.message);
+      if (e.message === 'Monday search timeout') {
+        mondayTimedOut = true;
+        mondayContext = '\n\n⚠️ MONDAY.COM: Search timed out — could not verify patient records.\n';
+        console.warn('[focus-context] Monday search timed out after 8s');
+      } else {
+        console.error('Monday patient lookup error:', e.message);
+        mondayContext = '\n\n⚠️ MONDAY.COM: Search failed — could not verify patient records.\n';
+      }
     }
+
+    // Build data-availability flags for Elena
+    const hasConversationHistory = conversationHistory.length > 0;
+    const hasMondayData = mondayContext.includes('Patient:');
 
     const { chat: elenaChat } = await import('../services/claude.js');
     const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
 
-CRITICAL RULES:
-- You have the FULL conversation history below. READ IT CAREFULLY to understand context.
-- The patient's name is almost always in our OUTBOUND messages (we text "Hey [Name], ..."). Find it.
-- NEVER fabricate context. If you don't know something, say so.
-- NEVER guess what a message is about if the history doesn't tell you.
-- Be specific: use the patient's name, mention what product/device is being discussed.
+## ABSOLUTE RULES — VIOLATION = SYSTEM FAILURE
+1. You may ONLY reference information explicitly provided below. If data is missing, SAY IT IS MISSING.
+2. If there is NO conversation history below, you MUST say "I couldn't pull the conversation history for this number."
+3. If Monday.com shows NOT FOUND or timed out, you MUST flag that to Corey.
+4. NEVER invent, guess, or assume who someone is, what they want, or what a message is about.
+5. If all you have is a single text message with no history, say exactly what you see — nothing more.
 
-${patientName ? `PATIENT NAME FOUND: ${patientName}` : ''}
+## DATA AVAILABILITY
+- Conversation history: ${hasConversationHistory ? 'YES — loaded below' : 'NO — could not retrieve'}
+- Monday.com records: ${hasMondayData ? 'YES — found below' : mondayTimedOut ? 'TIMED OUT' : mondaySearched ? 'NOT FOUND on any board' : 'Not searched'}
+${patientName ? `- Patient name found: ${patientName}` : '- Patient name: NOT IDENTIFIED'}
 
-ITEM:
+## ITEM
 Channel: ${item.channel}
 From: ${item.from || 'Unknown'}
 Subject: ${item.subject || ''}
@@ -253,10 +274,14 @@ Text: ${item.text || ''}
 Time: ${item.time || ''}
 ${conversationHistory}${entityContext}${mondayContext}
 
+## RESPONSE FORMAT
 Give Corey:
-1. A 1-sentence summary of what this is about (use the patient name if found)
-2. What he should do next (be specific)
-3. Urgency level: Do Now, Today, or Can Wait
+1. A 1-sentence summary (use patient name if found, flag missing data)
+2. What he should do next
+3. Urgency: Do Now, Today, or Can Wait
+
+${!hasConversationHistory ? 'IMPORTANT: Since conversation history is missing, start with "⚠️ Couldn\'t pull the full conversation history." Then summarize ONLY what you can see in the message text above.' : ''}
+${mondaySearched && !hasMondayData ? 'IMPORTANT: Flag that this patient was not found on Monday.com boards.' : ''}
 
 Keep it to 2-3 sentences. Be warm but direct.`;
 
