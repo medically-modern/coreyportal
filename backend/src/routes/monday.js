@@ -60,73 +60,39 @@ export async function searchMondayPatient(query) {
       'Authorization': process.env.MONDAY_API_TOKEN,
     };
 
-    // Fetch all items from all boards IN PARALLEL with pagination
-    async function fetchBoard(boardId) {
-      let cursor = null;
-      let allItems = [];
-
-      const firstRes = await fetch(MONDAY_API, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          query: `{
-            boards(ids: [${boardId}]) {
-              id name
-              items_page(limit: 500) {
-                cursor
-                items {
-                  id name
-                  group { title }
-                  column_values { id text type }
-                }
+    // Single query for all boards — fast, one API call
+    // Only fetches phone/text columns to reduce payload size
+    const response = await fetch(MONDAY_API, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        query: `{
+          boards(ids: [${boardIds.join(',')}]) {
+            id name
+            items_page(limit: 500) {
+              cursor
+              items {
+                id name
+                group { title }
+                column_values { id text type }
               }
             }
-          }`,
-        }),
-      });
-      const firstData = await firstRes.json();
-      if (firstData.errors) {
-        console.error(`Monday API error for board ${boardId}:`, firstData.errors);
-        return null;
-      }
-      const board = firstData.data?.boards?.[0];
-      if (!board) return null;
+          }
+        }`,
+      }),
+    });
 
-      const page1 = board.items_page || {};
-      allItems = page1.items || [];
-      cursor = page1.cursor;
-
-      while (cursor) {
-        const nextRes = await fetch(MONDAY_API, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            query: `{
-              next_items_page(limit: 500, cursor: "${cursor}") {
-                cursor
-                items {
-                  id name
-                  group { title }
-                  column_values { id text type }
-                }
-              }
-            }`,
-          }),
-        });
-        const nextData = await nextRes.json();
-        const nextPage = nextData.data?.next_items_page || {};
-        allItems = allItems.concat(nextPage.items || []);
-        cursor = nextPage.cursor;
-        if (allItems.length > 2000) break;
-      }
-
-      return { id: board.id, name: board.name, items: allItems };
+    const data = await response.json();
+    if (data.errors) {
+      console.error('Monday search API error:', data.errors);
+      return null;
     }
-
-    const boardResults = await Promise.allSettled(boardIds.map(id => fetchBoard(id)));
-    const boards = boardResults
-      .filter(r => r.status === 'fulfilled' && r.value)
-      .map(r => r.value);
+    const boards = (data.data?.boards || []).map(b => ({
+      id: b.id,
+      name: b.name,
+      items: b.items_page?.items || [],
+      cursor: b.items_page?.cursor,
+    }));
 
     // Normalize the query for matching
     const queryDigits = query.replace(/\D/g, '');
@@ -174,6 +140,57 @@ export async function searchMondayPatient(query) {
                 return acc;
               }, {}),
           });
+        }
+      }
+    }
+
+    // If no match found and any board overflowed (cursor exists), paginate those
+    if (matches.length === 0) {
+      const overflowed = boards.filter(b => b.cursor);
+      for (const board of overflowed) {
+        let cursor = board.cursor;
+        while (cursor) {
+          const nextRes = await fetch(MONDAY_API, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              query: `{
+                next_items_page(limit: 500, cursor: "${cursor}") {
+                  cursor
+                  items {
+                    id name
+                    group { title }
+                    column_values { id text type }
+                  }
+                }
+              }`,
+            }),
+          });
+          const nextData = await nextRes.json();
+          const nextPage = nextData.data?.next_items_page || {};
+          const items = nextPage.items || [];
+
+          for (const item of items) {
+            let matched = false;
+            if (item.name && item.name.toLowerCase().includes(queryLower)) matched = true;
+            for (const col of item.column_values || []) {
+              const val = (col.text || '').trim();
+              if (!val) continue;
+              if (queryDigits.length >= 10) {
+                const colDigits = val.replace(/\D/g, '');
+                if (colDigits.length >= 10 && colDigits.slice(-10) === queryDigits.slice(-10)) matched = true;
+              }
+              if (queryLower.length > 2 && val.toLowerCase().includes(queryLower)) matched = true;
+            }
+            if (matched) {
+              matches.push({
+                name: item.name, board: board.name, group: item.group?.title || '',
+                columns: (item.column_values || []).filter(c => c.text).reduce((acc, c) => { acc[c.id] = c.text; return acc; }, {}),
+              });
+            }
+          }
+          cursor = nextPage.cursor;
+          if (matches.length > 0) break; // found it, stop paginating
         }
       }
     }
