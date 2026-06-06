@@ -12,7 +12,8 @@ export default function AssistantView() {
   useEffect(() => {
     async function loadHistory() {
       try {
-        const history = await api.chatHistory();
+        const historyData = await api.chatHistory();
+        const history = historyData.messages || historyData || [];
         if (Array.isArray(history) && history.length > 0) {
           setMessages(history.map(h => ({
             role: h.role,

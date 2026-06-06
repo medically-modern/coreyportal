@@ -61,8 +61,9 @@ export default function Dashboard() {
         try {
           const unread = await api.gmailUnread();
           emailCount = unread.count || 0;
-          const threads = await api.gmailThreads();
-          (threads || []).slice(0, 3).forEach(t => {
+          const threadsData = await api.gmailThreads();
+          const threads = threadsData.threads || threadsData || [];
+          (threads).slice(0, 3).forEach(t => {
             items.push({
               title: `${t.from}: ${t.subject}`,
               source: 'Gmail',
@@ -76,8 +77,9 @@ export default function Dashboard() {
       // Slack
       let slackCount = 0;
       try {
-        const channels = await api.slackChannels();
-        const mainChannel = (channels || []).find(c => c.name === 'med-mod-onboarding') || (channels || [])[0];
+        const chData = await api.slackChannels();
+        const channels = chData.channels || chData || [];
+        const mainChannel = (channels).find(c => c.name === 'med-mod-onboarding') || (channels || [])[0];
         if (mainChannel) {
           const msgs = await api.slackMessages(mainChannel.id);
           const msgList = msgs.messages || msgs || [];
@@ -115,9 +117,10 @@ export default function Dashboard() {
       // Q&A
       let qCount = 0;
       try {
-        const qs = await api.questions('pending');
-        qCount = (qs || []).length;
-        (qs || []).slice(0, 2).forEach(q => {
+        const qsData = await api.questions('pending');
+        const qs = qsData.questions || qsData || [];
+        qCount = qs.length;
+        (qs).slice(0, 2).forEach(q => {
           items.push({
             title: q.question,
             source: `Q&A from ${q.from || 'Team'}`,

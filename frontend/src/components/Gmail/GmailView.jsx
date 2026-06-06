@@ -50,7 +50,7 @@ export default function GmailView() {
       setConnected(status.connected);
       if (status.connected) {
         const data = await api.gmailThreads();
-        setThreads(data || []);
+        setThreads(data.threads || data || []);
       }
     } catch (e) {
       setConnected(false);
@@ -86,7 +86,7 @@ export default function GmailView() {
     setLoading(true);
     try {
       const data = await api.gmailSearch(searchQ);
-      setThreads(data || []);
+      setThreads(data.threads || data || []);
     } catch (e) {}
     setLoading(false);
   }

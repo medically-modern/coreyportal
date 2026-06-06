@@ -30,11 +30,11 @@ export default function SlackView() {
     setLoading(true);
     try {
       const data = await api.slackChannels();
-      setChannels(data || []);
+      setChannels(data.channels || data || []);
       // Also load DMs
       try {
         const dmData = await api.slackDMs();
-        setDms(dmData || []);
+        setDms(dmData.messages || dmData.dms || dmData || []);
       } catch (e) {}
     } catch (e) {
       console.error('Slack load error:', e);
@@ -72,7 +72,7 @@ export default function SlackView() {
     setMsgsLoading(true);
     try {
       const data = await api.slackSearch(searchQ);
-      setSearchResults(data.messages || data || []);
+      setSearchResults(data.messages?.matches || data.messages || data || []);
     } catch (e) {
       setSearchResults([]);
     }

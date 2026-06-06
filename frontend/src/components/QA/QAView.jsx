@@ -26,7 +26,7 @@ export default function QAView() {
     setLoading(true);
     try {
       const data = await api.questions(filter);
-      setQuestions(data || []);
+      setQuestions(data.questions || data || []);
     } catch (e) {
       console.error('QA load error:', e);
     }
