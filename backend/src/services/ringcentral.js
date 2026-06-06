@@ -119,6 +119,57 @@ export async function getConversationMessages(phoneNumber, perPage = 50) {
   }));
 }
 
+// Get ALL messages for a specific phone number — paginates fully, matches by digits
+export async function getFullConversation(phoneNumber, daysBack = 180) {
+  const p = await getPlatform();
+  const phoneDigits = phoneNumber.replace(/\D/g, '');
+  const last10 = phoneDigits.slice(-10);
+
+  const since = new Date();
+  since.setDate(since.getDate() - daysBack);
+
+  let allRecords = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    const res = await p.get('/restapi/v1.0/account/~/extension/~/message-store', {
+      messageType: ['SMS'],
+      perPage: 250,
+      page,
+      dateFrom: since.toISOString(),
+    });
+    const data = await res.json();
+    const records = data.records || [];
+
+    // Filter for this phone number (client-side — RC's phoneNumber filter is unreliable)
+    for (const msg of records) {
+      const from = (msg.from?.phoneNumber || '').replace(/\D/g, '');
+      const to = (msg.to?.[0]?.phoneNumber || '').replace(/\D/g, '');
+      if (from.slice(-10) === last10 || to.slice(-10) === last10) {
+        allRecords.push({
+          direction: msg.direction,
+          text: msg.subject,
+          time: msg.creationTime,
+          readStatus: msg.readStatus,
+        });
+      }
+    }
+
+    if (data.paging && data.paging.page < data.paging.totalPages) {
+      page++;
+    } else {
+      hasMore = false;
+    }
+    // Safety cap at 5000 to avoid runaway pagination
+    if (page > 20) hasMore = false;
+  }
+
+  // Sort chronologically (oldest first)
+  allRecords.sort((a, b) => new Date(a.time) - new Date(b.time));
+  return allRecords;
+}
+
 // ---- VOICEMAILS ----
 
 export async function getVoicemails(perPage = 20) {

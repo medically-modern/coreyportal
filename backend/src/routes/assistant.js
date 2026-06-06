@@ -57,38 +57,19 @@ router.get('/debug-focus', async (req, res) => {
   const phone = req.query.phone || '';
   const debug = { phone, steps: [] };
 
-  // Step 1: Direct RC getConversationMessages
+  // Step 1: Full conversation lookup (paginates through ALL RC messages, client-side phone match)
   try {
-    const { getConversationMessages } = await import('../services/ringcentral.js');
-    const msgs = await getConversationMessages(phone, 10);
-    debug.steps.push({ step: 'RC direct lookup', count: msgs.length, sample: msgs.slice(0, 3) });
-  } catch (e) {
-    debug.steps.push({ step: 'RC direct lookup', error: e.message });
-  }
-
-  // Step 2: RC getTextConversations + phone match (90 day lookback)
-  try {
-    const { getTextConversations } = await import('../services/ringcentral.js');
-    const convos = await getTextConversations(100, 90);
-    const phoneDigits = phone.replace(/\D/g, '');
-    const allContacts = convos.map(c => c.contact);
-    const match = convos.find(c => {
-      const contactDigits = (c.contact || '').replace(/\D/g, '');
-      return contactDigits === phoneDigits
-        || contactDigits.endsWith(phoneDigits.slice(-10))
-        || phoneDigits.endsWith(contactDigits.slice(-10));
-    });
+    const { getFullConversation } = await import('../services/ringcentral.js');
+    const msgs = await getFullConversation(phone, 180);
     debug.steps.push({
-      step: 'RC convo scan (90 days)',
-      totalConvos: convos.length,
-      allContacts: allContacts.slice(0, 30),
-      matchFound: !!match,
-      matchContact: match?.contact || null,
-      matchMessageCount: match ? match.messages.length : 0,
-      matchMessages: match ? match.messages.slice(0, 5) : [],
+      step: 'RC full conversation (180 days)',
+      totalMessages: msgs.length,
+      oldestMessage: msgs[0]?.time || null,
+      newestMessage: msgs[msgs.length - 1]?.time || null,
+      recentMessages: msgs.slice(-5),
     });
   } catch (e) {
-    debug.steps.push({ step: 'RC convo scan', error: e.message });
+    debug.steps.push({ step: 'RC full conversation', error: e.message });
   }
 
   // Step 3: Monday.com search
@@ -115,53 +96,22 @@ router.post('/focus-context', async (req, res) => {
     // Pull real conversation history based on channel
     if (item.channel === 'rc' && item.from) {
       try {
-        const { getTextConversations, getConversationMessages } = await import('../services/ringcentral.js');
+        const { getFullConversation } = await import('../services/ringcentral.js');
         const phone = /^\+?\d/.test(item.from) ? item.from : null;
-        console.log(`[focus-context] RC lookup for: ${item.from}, extracted phone: ${phone}`);
+        console.log(`[focus-context] RC full conversation lookup for: ${phone}`);
         if (phone) {
-          let messages = [];
-
-          // Strategy 1: Try direct phoneNumber filter
-          try {
-            const directMsgs = await getConversationMessages(phone, 20);
-            console.log(`[focus-context] Direct RC API returned ${directMsgs.length} messages`);
-            if (directMsgs.length > 0) messages = directMsgs;
-          } catch (e) {
-            console.error('[focus-context] RC direct lookup failed:', e.message);
-          }
-
-          // Strategy 2: ALWAYS try convo scan (90 day lookback) — use if it finds more messages
-          try {
-            const convos = await getTextConversations(100, 90);
-            console.log(`[focus-context] Scanning ${convos.length} conversations for phone match`);
-            const phoneDigits = phone.replace(/\D/g, '');
-            const match = convos.find(c => {
-              const contactDigits = (c.contact || '').replace(/\D/g, '');
-              return contactDigits === phoneDigits
-                || contactDigits.endsWith(phoneDigits.slice(-10))
-                || phoneDigits.endsWith(contactDigits.slice(-10));
-            });
-            if (match && match.messages && match.messages.length > messages.length) {
-              console.log(`[focus-context] Convo scan found ${match.messages.length} messages (vs ${messages.length} from direct) for ${match.contact}`);
-              messages = match.messages.map(m => ({
-                direction: m.direction,
-                text: m.text,
-                time: m.time,
-              }));
-            } else if (!match) {
-              console.log(`[focus-context] No matching convo found for digits: ${phoneDigits}`);
-            }
-          } catch (e2) {
-            console.error('[focus-context] RC conversation scan failed:', e2.message);
-          }
+          const messages = await getFullConversation(phone, 180);
+          console.log(`[focus-context] Found ${messages.length} total messages for ${phone}`);
 
           if (messages.length > 0) {
-            conversationHistory = '\n\nFULL SMS CONVERSATION HISTORY (most recent first):\n';
-            for (const msg of messages.slice(0, 20)) {
+            // Show most recent 30 messages (chronological — oldest to newest)
+            const recent = messages.slice(-30);
+            conversationHistory = `\n\nFULL SMS CONVERSATION HISTORY (${messages.length} total messages, showing last ${recent.length}):\n`;
+            for (const msg of recent) {
               const dir = msg.direction === 'Inbound' ? 'THEM' : 'US';
               conversationHistory += `[${dir}] ${msg.text} (${msg.time})\n`;
             }
-            // Extract patient name from our outbound messages
+            // Extract patient name from outbound messages
             for (const msg of messages) {
               if (msg.direction === 'Outbound' && msg.text) {
                 const nameMatch = msg.text.match(/^(?:Hey|Dear|Hi)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
