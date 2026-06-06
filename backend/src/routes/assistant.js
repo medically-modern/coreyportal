@@ -193,26 +193,111 @@ ${liveContext}`;
   }
 });
 
-// Elena quick-context for a single focus item
+// Elena quick-context for a single focus item — with REAL conversation history + patient name resolution
 router.post('/focus-context', async (req, res) => {
   try {
     const { item } = req.body;
     if (!item) return res.status(400).json({ error: 'item required' });
 
+    let conversationContext = '';
+    let patientInfo = '';
+
+    // Pull real conversation history based on channel
+    if (item.channel === 'rc' && item.from) {
+      try {
+        const { getConversationMessages } = await import('../services/ringcentral.js');
+        const messages = await getConversationMessages(item.from, 20);
+        if (messages.length > 0) {
+          conversationContext = '\n\nFull SMS conversation with ' + item.from + ' (most recent first):\n';
+          for (const msg of messages.slice(0, 15)) {
+            const dir = msg.direction === 'Inbound' ? 'THEM \u2192' : '\u2190 US';
+            conversationContext += dir + ' "' + (msg.text || '').substring(0, 300) + '" (' + (msg.time || '') + ')\n';
+          }
+
+          // Extract patient name from outbound messages (our texts always start with "Hey [Name]")
+          for (const msg of messages) {
+            if (msg.direction === 'Outbound' && msg.text) {
+              const nameMatch = msg.text.match(/^Hey\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+              if (nameMatch) {
+                patientInfo = '\nPatient identified from our outbound messages: ' + nameMatch[1];
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('RC context fetch error:', e.message);
+      }
+    }
+
+    if (item.channel === 'email' && item.threadId) {
+      try {
+        const { getThread } = await import('../services/gmail.js');
+        const thread = await getThread(item.threadId);
+        if (thread?.messages) {
+          conversationContext = '\n\nFull email thread:\n';
+          for (const msg of thread.messages.slice(0, 5)) {
+            conversationContext += '- ' + (msg.from || '') + ': "' + (msg.snippet || msg.body || '').substring(0, 300) + '"\n';
+          }
+        }
+      } catch (e) {
+        console.error('Gmail context fetch error:', e.message);
+      }
+    }
+
+    if (item.channel === 'slack') {
+      // For Slack, the message text itself is usually enough, but add channel context
+      conversationContext = '\n\nSlack message context: This came from a Slack channel. The full message is in the Content field above.';
+    }
+
+    // Also check entities DB for any name matches
+    if (!patientInfo) {
+      try {
+        const { searchEntities } = await import('../services/context.js');
+        // Try phone number lookup
+        if (item.from && /^\\+?\\d/.test(item.from)) {
+          const entities = searchEntities(item.from);
+          if (entities.length > 0) {
+            patientInfo = '\nKnown entity: ' + entities.map(e => e.name + ' (' + e.type + ')').join(', ');
+          }
+        }
+        // Try name extraction from the item text itself
+        if (!patientInfo && item.text) {
+          const nameInText = item.text.match(/(?:Hey|Dear|Hi)\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)*)/);
+          if (nameInText) {
+            const found = searchEntities(nameInText[1]);
+            if (found.length > 0) {
+              patientInfo = '\nKnown entity: ' + found.map(e => e.name + ' (' + e.type + ')').join(', ');
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     const { chat: elenaChat } = await import('../services/claude.js');
-    const prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue. Give him:
-1. A one-sentence summary of what this is about (CONTEXT — who, what, why it matters)
-2. A suggested next action (be specific: "Reply with...", "Call back about...", "Delegate to...")
+    const prompt = \`You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
 
-Be warm, concise — 2-3 sentences max. No bullet points. Write like a trusted assistant whispering in his ear.
+CRITICAL RULES:
+- You have the FULL conversation history below. READ IT CAREFULLY to understand context.
+- The patient's name is almost always in our OUTBOUND messages (we text "Hey [Name], ..."). Find it.
+- Do NOT guess or fabricate context. Only state what you can see in the data.
+- If a patient replied "Yes" or "Ok", check our outbound messages to see WHAT they're confirming.
 
-The item:
-- Channel: ${item.channel}
-- From: ${item.from || 'Unknown'}
-- Subject: ${item.subject || ''}
-- Content: ${item.text || ''}
-- Time: ${item.time || 'Unknown'}
-- Urgent: ${item.urgent ? 'Yes' : 'No'}`;
+Give Corey:
+1. The patient/person's NAME (extracted from conversation) and what they're responding to
+2. A specific next action ("Process their reorder", "Call them back about...", etc.)
+
+Be warm, concise — 2-3 sentences max. No bullet points.
+
+The current item:
+- Channel: \${item.channel}
+- From: \${item.from || 'Unknown'}
+- Subject: \${item.subject || ''}
+- Content: \${item.text || ''}
+- Time: \${item.time || 'Unknown'}
+- Urgent: \${item.urgent ? 'Yes' : 'No'}
+\${patientInfo}
+\${conversationContext || '\n(No conversation history available — state that you have limited context)'}\`;
 
     const response = await elenaChat(prompt, 'focus-context');
     res.json({ context: response });
