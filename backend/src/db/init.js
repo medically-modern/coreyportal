@@ -54,6 +54,13 @@ export function initDb() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Settings (OAuth tokens, config)
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Action log for audit trail
     CREATE TABLE IF NOT EXISTS action_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
