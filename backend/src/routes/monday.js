@@ -45,7 +45,6 @@ export async function searchMondayPatient(query) {
   if (!process.env.MONDAY_API_TOKEN) return null;
 
   try {
-    // Board IDs from Medically Modern pipeline
     const boardIds = [
       18407459988,  // Subscription Board
       18392794310,  // DTC Intake Board
@@ -60,9 +59,12 @@ export async function searchMondayPatient(query) {
       'Authorization': process.env.MONDAY_API_TOKEN,
     };
 
-    // Single query for all boards — fast, one API call
-    // Only fetches phone/text columns to reduce payload size
-    const response = await fetch(MONDAY_API, {
+    const queryDigits = query.replace(/\D/g, '');
+    const queryLower = query.toLowerCase().trim();
+    const isPhoneSearch = queryDigits.length >= 10;
+
+    // STEP 1: Fast name-only search (tiny payload — just item names + groups)
+    const nameRes = await fetch(MONDAY_API, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -71,126 +73,91 @@ export async function searchMondayPatient(query) {
             id name
             items_page(limit: 500) {
               cursor
-              items {
-                id name
-                group { title }
-                column_values { id text type }
-              }
+              items { id name group { title } }
             }
           }
         }`,
       }),
     });
-
-    const data = await response.json();
-    if (data.errors) {
-      console.error('Monday search API error:', data.errors);
+    const nameData = await nameRes.json();
+    if (nameData.errors) {
+      console.error('Monday name search error:', nameData.errors);
       return null;
     }
-    const boards = (data.data?.boards || []).map(b => ({
-      id: b.id,
-      name: b.name,
-      items: b.items_page?.items || [],
-      cursor: b.items_page?.cursor,
-    }));
 
-    // Normalize the query for matching
-    const queryDigits = query.replace(/\D/g, '');
-    const queryLower = query.toLowerCase().trim();
     const matches = [];
+    const boardsWithNames = nameData.data?.boards || [];
 
-    for (const board of boards) {
-      const items = board.items || [];
-      for (const item of items) {
-        let matched = false;
-
-        // Check item name (usually patient name)
+    // Check names across all boards
+    for (const board of boardsWithNames) {
+      for (const item of board.items_page?.items || []) {
         if (item.name && item.name.toLowerCase().includes(queryLower)) {
-          matched = true;
-        }
-
-        // Check all column values for phone number match
-        for (const col of item.column_values || []) {
-          const val = (col.text || '').trim();
-          if (!val) continue;
-
-          // Phone match: compare last 10 digits
-          if (queryDigits.length >= 10) {
-            const colDigits = val.replace(/\D/g, '');
-            if (colDigits.length >= 10 && colDigits.slice(-10) === queryDigits.slice(-10)) {
-              matched = true;
-            }
-          }
-
-          // Name match in column values
-          if (queryLower.length > 2 && val.toLowerCase().includes(queryLower)) {
-            matched = true;
-          }
-        }
-
-        if (matched) {
-          matches.push({
-            name: item.name,
-            board: board.name,
-            group: item.group?.title || '',
-            columns: (item.column_values || [])
-              .filter(c => c.text)
-              .reduce((acc, c) => {
-                acc[c.id] = c.text;
-                return acc;
-              }, {}),
-          });
+          matches.push({ name: item.name, board: board.name, group: item.group?.title || '', columns: {} });
         }
       }
     }
 
-    // If no match found and any board overflowed (cursor exists), paginate those
+    // Also check overflow boards for name matches
     if (matches.length === 0) {
-      const overflowed = boards.filter(b => b.cursor);
-      for (const board of overflowed) {
-        let cursor = board.cursor;
+      for (const board of boardsWithNames) {
+        let cursor = board.items_page?.cursor;
         while (cursor) {
-          const nextRes = await fetch(MONDAY_API, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              query: `{
-                next_items_page(limit: 500, cursor: "${cursor}") {
-                  cursor
-                  items {
-                    id name
-                    group { title }
-                    column_values { id text type }
-                  }
-                }
-              }`,
-            }),
+          const r = await fetch(MONDAY_API, { method: 'POST', headers,
+            body: JSON.stringify({ query: `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { id name group { title } } } }` })
           });
-          const nextData = await nextRes.json();
-          const nextPage = nextData.data?.next_items_page || {};
-          const items = nextPage.items || [];
+          const d = await r.json();
+          const page = d.data?.next_items_page || {};
+          for (const item of page.items || []) {
+            if (item.name && item.name.toLowerCase().includes(queryLower)) {
+              matches.push({ name: item.name, board: board.name, group: item.group?.title || '', columns: {} });
+            }
+          }
+          cursor = page.cursor;
+          if (matches.length > 0) break;
+        }
+      }
+    }
 
+    if (matches.length > 0) return matches;
+
+    // STEP 2: Phone search — query each board for ONLY phone-type columns
+    if (isPhoneSearch) {
+      for (const boardId of boardIds) {
+        // First get the board's phone column IDs
+        const colRes = await fetch(MONDAY_API, { method: 'POST', headers,
+          body: JSON.stringify({ query: `{ boards(ids: [${boardId}]) { name columns(types: [phone]) { id } items_page(limit: 500) { cursor items { id name group { title } column_values(types: [phone]) { id text } } } } }` })
+        });
+        const colData = await colRes.json();
+        const board = colData.data?.boards?.[0];
+        if (!board) continue;
+
+        const searchItems = (items) => {
           for (const item of items) {
-            let matched = false;
-            if (item.name && item.name.toLowerCase().includes(queryLower)) matched = true;
             for (const col of item.column_values || []) {
               const val = (col.text || '').trim();
               if (!val) continue;
-              if (queryDigits.length >= 10) {
-                const colDigits = val.replace(/\D/g, '');
-                if (colDigits.length >= 10 && colDigits.slice(-10) === queryDigits.slice(-10)) matched = true;
+              const colDigits = val.replace(/\D/g, '');
+              if (colDigits.length >= 10 && colDigits.slice(-10) === queryDigits.slice(-10)) {
+                matches.push({ name: item.name, board: board.name, group: item.group?.title || '', columns: {} });
               }
-              if (queryLower.length > 2 && val.toLowerCase().includes(queryLower)) matched = true;
-            }
-            if (matched) {
-              matches.push({
-                name: item.name, board: board.name, group: item.group?.title || '',
-                columns: (item.column_values || []).filter(c => c.text).reduce((acc, c) => { acc[c.id] = c.text; return acc; }, {}),
-              });
             }
           }
-          cursor = nextPage.cursor;
-          if (matches.length > 0) break; // found it, stop paginating
+        };
+
+        searchItems(board.items_page?.items || []);
+        if (matches.length > 0) return matches;
+
+        // Paginate if overflow
+        let cursor = board.items_page?.cursor;
+        while (cursor) {
+          const r = await fetch(MONDAY_API, { method: 'POST', headers,
+            body: JSON.stringify({ query: `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { id name group { title } column_values(types: [phone]) { id text } } } }` })
+          });
+          const d = await r.json();
+          const page = d.data?.next_items_page || {};
+          searchItems(page.items || []);
+          if (matches.length > 0) return matches;
+          cursor = page.cursor;
         }
       }
     }
