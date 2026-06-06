@@ -1,0 +1,20 @@
+{
+  "name": "corey-portal-api",
+  "version": "1.0.0",
+  "description": "Corey Portal backend API — Claude-powered CEO command center",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "better-sqlite3": "^11.0.0",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  }
+}
