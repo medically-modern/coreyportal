@@ -66,14 +66,16 @@ router.post('/focus-context', async (req, res) => {
       try {
         const { getTextConversations, getConversationMessages } = await import('../services/ringcentral.js');
         const phone = /^\+?\d/.test(item.from) ? item.from : null;
+        console.log(`[focus-context] RC lookup for: ${item.from}, extracted phone: ${phone}`);
         if (phone) {
           let messages = [];
 
           // Strategy 1: Try direct phoneNumber filter
           try {
             messages = await getConversationMessages(phone, 20);
+            console.log(`[focus-context] Direct RC API returned ${messages.length} messages`);
           } catch (e) {
-            console.error('RC direct lookup failed:', e.message);
+            console.error('[focus-context] RC direct lookup failed:', e.message);
           }
 
           // Strategy 2: If direct lookup returned nothing, pull all recent
@@ -81,7 +83,7 @@ router.post('/focus-context', async (req, res) => {
           if (messages.length === 0) {
             try {
               const convos = await getTextConversations(100, 30);
-              // Find conversation matching this phone number (try multiple formats)
+              console.log(`[focus-context] Scanning ${convos.length} conversations for phone match`);
               const phoneDigits = phone.replace(/\D/g, '');
               const match = convos.find(c => {
                 const contactDigits = (c.contact || '').replace(/\D/g, '');
@@ -90,14 +92,19 @@ router.post('/focus-context', async (req, res) => {
                   || phoneDigits.endsWith(contactDigits.slice(-10));
               });
               if (match && match.messages) {
+                console.log(`[focus-context] Found matching convo with ${match.messages.length} messages for ${match.contact}`);
                 messages = match.messages.map(m => ({
                   direction: m.direction,
                   text: m.text,
                   time: m.time,
                 }));
+              } else {
+                console.log(`[focus-context] No matching convo found for digits: ${phoneDigits}`);
+                // Log all contacts for debugging
+                console.log(`[focus-context] Available contacts: ${convos.map(c => c.contact).join(', ')}`);
               }
             } catch (e2) {
-              console.error('RC conversation scan failed:', e2.message);
+              console.error('[focus-context] RC conversation scan failed:', e2.message);
             }
           }
 
@@ -250,9 +257,58 @@ router.post('/briefing', async (req, res) => {
     const rc = results[1].status === 'fulfilled' ? results[1].value : { connected: false };
     const questions = results[2].status === 'fulfilled' ? results[2].value : [];
 
+    // ── Resolve phone numbers to patient names via Monday.com ──
+    const { searchMondayPatient } = await import('./monday.js');
+    const phoneNameCache = {}; // cache to avoid duplicate lookups
+
+    async function resolvePhone(phone) {
+      if (!phone || !/^\+?\d/.test(phone)) return phone;
+      const digits = phone.replace(/\D/g, '');
+      if (phoneNameCache[digits]) return phoneNameCache[digits];
+      try {
+        const results = await searchMondayPatient(phone);
+        if (results && results.length > 0) {
+          const name = results[0].name;
+          const stage = results[0].group || results[0].board || '';
+          const resolved = `${name} (${phone})${stage ? ' [' + stage + ']' : ''}`;
+          phoneNameCache[digits] = resolved;
+          return resolved;
+        }
+      } catch {}
+      phoneNameCache[digits] = phone;
+      return phone;
+    }
+
+    // Also try extracting patient name from outbound messages in a conversation
+    function extractNameFromConvo(messages) {
+      for (const msg of messages || []) {
+        if (msg.direction === 'Outbound' && msg.text) {
+          const m = msg.text.match(/^(?:Hey|Dear|Hi)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+          if (m) return m[1];
+        }
+      }
+      return null;
+    }
+
+    // Resolve all unique phone numbers from RC data in parallel
+    if (rc.connected) {
+      const allPhones = new Set();
+      for (const c of rc.texts || []) {
+        if (/^\+?\d/.test(c.contact)) allPhones.add(c.contact);
+      }
+      for (const call of rc.missed || []) {
+        const p = call.from?.phoneNumber;
+        if (p) allPhones.add(p);
+      }
+      // Batch lookup — up to 20 at a time to avoid hammering Monday
+      const phonesToResolve = [...allPhones].slice(0, 40);
+      await Promise.allSettled(phonesToResolve.map(p => resolvePhone(p)));
+    }
+
     // Build a live data summary for Elena
     let liveContext = '\n\n## LIVE DATA (just fetched)\n';
     liveContext += 'IMPORTANT: "unread" means "unprocessed" — Corey uses read/unread status to track what he\'s handled.\n';
+    liveContext += 'Phone numbers below have been looked up in Monday.com. If a name appears, that IS the patient.\n';
 
     if (gmail.connected) {
       const unread = gmail.unreadThreads || [];
@@ -289,7 +345,9 @@ router.post('/briefing', async (req, res) => {
       if (unreadConvos.length > 0) {
         liveContext += '\nUNREAD (needs attention):\n';
         for (const c of unreadConvos) {
-          liveContext += `- ${c.contact} (${c.unread} unread):\n`;
+          // Use resolved name from Monday, or extract from outbound msgs, or raw number
+          const name = phoneNameCache[c.contact?.replace(/\D/g, '')] || extractNameFromConvo(c.messages) || c.contact;
+          liveContext += `- ${name} (${c.unread} unread):\n`;
           for (const msg of c.messages.slice(0, 3)) {
             liveContext += `    ${msg.direction === 'Inbound' ? '<- ' : '-> '}"${msg.text?.substring(0, 100) || ''}" (${msg.time})\n`;
           }
@@ -301,14 +359,18 @@ router.post('/briefing', async (req, res) => {
         liveContext += `\nAlready handled (${readConvos.length} conversations):\n`;
         for (const c of readConvos.slice(0, 10)) {
           const lastMsg = c.messages[0];
-          liveContext += `- ${c.contact}: "${lastMsg?.text?.substring(0, 60) || ''}" (${lastMsg?.direction || ''})\n`;
+          const name = phoneNameCache[c.contact?.replace(/\D/g, '')] || extractNameFromConvo(c.messages) || c.contact;
+          liveContext += `- ${name}: "${lastMsg?.text?.substring(0, 60) || ''}" (${lastMsg?.direction || ''})\n`;
         }
       }
 
       if (rc.missed && rc.missed.length > 0) {
         liveContext += `\n### Missed calls: ${rc.missed.length}\n`;
+        liveContext += 'IMPORTANT: These are real patients calling from their phones. Every number is a patient — look up by the resolved name.\n';
         for (const call of rc.missed) {
-          liveContext += `- ${call.from?.phoneNumber || call.from?.name || 'Unknown'} at ${call.startTime}\n`;
+          const rawPhone = call.from?.phoneNumber || call.from?.name || 'Unknown';
+          const name = phoneNameCache[rawPhone.replace(/\D/g, '')] || rawPhone;
+          liveContext += `- ${name} at ${call.startTime}\n`;
         }
       }
     } else {
