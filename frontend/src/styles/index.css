@@ -38,35 +38,19 @@
   }
 }
 
-/* ADD Focus Assist — hover blur on data elements, deepens after resting 3s */
-.focus-item {
-  transition: filter 0.3s ease, opacity 0.3s ease;
-}
-
-.focus-container:hover .focus-item:not(:hover) {
-  filter: blur(1.5px);
-  opacity: 0.75;
-}
-
-/* When a focus-item has been hovered 3s+, deepen blur on siblings */
-.focus-container:hover .focus-item.focus-deep:not(:hover) {
-  filter: blur(3px);
-  opacity: 0.5;
-}
-
-/* Global ADD Focus Assist — any [data-focus-group] container gets hover blur */
-[data-focus-group]:hover [data-focus-item]:not(:hover) {
-  filter: blur(1.5px);
-  opacity: 0.75;
-  transition: filter 0.3s ease, opacity 0.3s ease;
-}
-
+/* ADD Focus Assist — blur only activates after resting on an item */
 [data-focus-group] [data-focus-item] {
-  transition: filter 0.3s ease, opacity 0.3s ease;
+  transition: filter 0.4s ease, opacity 0.4s ease;
 }
 
-/* Deep focus — applied via JS after 3s hover dwell */
+/* Light blur after 2s dwell */
 [data-focus-group].focus-dwell [data-focus-item]:not(:hover) {
+  filter: blur(1.5px);
+  opacity: 0.7;
+}
+
+/* Deep blur after 5s dwell */
+[data-focus-group].focus-deep [data-focus-item]:not(:hover) {
   filter: blur(3.5px);
-  opacity: 0.5;
+  opacity: 0.45;
 }
