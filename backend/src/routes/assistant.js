@@ -66,10 +66,10 @@ router.get('/debug-focus', async (req, res) => {
     debug.steps.push({ step: 'RC direct lookup', error: e.message });
   }
 
-  // Step 2: RC getTextConversations + phone match
+  // Step 2: RC getTextConversations + phone match (90 day lookback)
   try {
     const { getTextConversations } = await import('../services/ringcentral.js');
-    const convos = await getTextConversations(100, 30);
+    const convos = await getTextConversations(100, 90);
     const phoneDigits = phone.replace(/\D/g, '');
     const allContacts = convos.map(c => c.contact);
     const match = convos.find(c => {
@@ -79,12 +79,13 @@ router.get('/debug-focus', async (req, res) => {
         || phoneDigits.endsWith(contactDigits.slice(-10));
     });
     debug.steps.push({
-      step: 'RC convo scan',
+      step: 'RC convo scan (90 days)',
       totalConvos: convos.length,
       allContacts: allContacts.slice(0, 30),
       matchFound: !!match,
       matchContact: match?.contact || null,
-      matchMessages: match ? match.messages.slice(0, 3) : [],
+      matchMessageCount: match ? match.messages.length : 0,
+      matchMessages: match ? match.messages.slice(0, 5) : [],
     });
   } catch (e) {
     debug.steps.push({ step: 'RC convo scan', error: e.message });
@@ -122,40 +123,36 @@ router.post('/focus-context', async (req, res) => {
 
           // Strategy 1: Try direct phoneNumber filter
           try {
-            messages = await getConversationMessages(phone, 20);
-            console.log(`[focus-context] Direct RC API returned ${messages.length} messages`);
+            const directMsgs = await getConversationMessages(phone, 20);
+            console.log(`[focus-context] Direct RC API returned ${directMsgs.length} messages`);
+            if (directMsgs.length > 0) messages = directMsgs;
           } catch (e) {
             console.error('[focus-context] RC direct lookup failed:', e.message);
           }
 
-          // Strategy 2: If direct lookup returned nothing, pull all recent
-          // conversations and find the matching one by phone number
-          if (messages.length === 0) {
-            try {
-              const convos = await getTextConversations(100, 30);
-              console.log(`[focus-context] Scanning ${convos.length} conversations for phone match`);
-              const phoneDigits = phone.replace(/\D/g, '');
-              const match = convos.find(c => {
-                const contactDigits = (c.contact || '').replace(/\D/g, '');
-                return contactDigits === phoneDigits
-                  || contactDigits.endsWith(phoneDigits.slice(-10))
-                  || phoneDigits.endsWith(contactDigits.slice(-10));
-              });
-              if (match && match.messages) {
-                console.log(`[focus-context] Found matching convo with ${match.messages.length} messages for ${match.contact}`);
-                messages = match.messages.map(m => ({
-                  direction: m.direction,
-                  text: m.text,
-                  time: m.time,
-                }));
-              } else {
-                console.log(`[focus-context] No matching convo found for digits: ${phoneDigits}`);
-                // Log all contacts for debugging
-                console.log(`[focus-context] Available contacts: ${convos.map(c => c.contact).join(', ')}`);
-              }
-            } catch (e2) {
-              console.error('[focus-context] RC conversation scan failed:', e2.message);
+          // Strategy 2: ALWAYS try convo scan (90 day lookback) — use if it finds more messages
+          try {
+            const convos = await getTextConversations(100, 90);
+            console.log(`[focus-context] Scanning ${convos.length} conversations for phone match`);
+            const phoneDigits = phone.replace(/\D/g, '');
+            const match = convos.find(c => {
+              const contactDigits = (c.contact || '').replace(/\D/g, '');
+              return contactDigits === phoneDigits
+                || contactDigits.endsWith(phoneDigits.slice(-10))
+                || phoneDigits.endsWith(contactDigits.slice(-10));
+            });
+            if (match && match.messages && match.messages.length > messages.length) {
+              console.log(`[focus-context] Convo scan found ${match.messages.length} messages (vs ${messages.length} from direct) for ${match.contact}`);
+              messages = match.messages.map(m => ({
+                direction: m.direction,
+                text: m.text,
+                time: m.time,
+              }));
+            } else if (!match) {
+              console.log(`[focus-context] No matching convo found for digits: ${phoneDigits}`);
             }
+          } catch (e2) {
+            console.error('[focus-context] RC conversation scan failed:', e2.message);
           }
 
           if (messages.length > 0) {
