@@ -230,15 +230,18 @@ Text: ${item.text || ''}
 Time: ${item.time || ''}
 ${conversationHistory}${entityContext}${mondayContext}
 
-## RESPONSE FORMAT
-Give Corey:
-1. A 1-sentence summary (use patient name if found, flag missing data)
-2. What he should do next (be specific)
-3. Urgency: Do Now, Today, or Can Wait
+## RESPONSE FORMAT — STRICT JSON ONLY
+Return ONLY a JSON object with these exact keys, no markdown, no explanation:
+{
+  "summary": "1 sentence: what this is about (use patient name if found)",
+  "action": "1 sentence: exactly what Corey should do next",
+  "urgency": "do_now" or "today" or "can_wait",
+  "flags": ["array of short warning strings, e.g. 'Not found on Monday.com boards'"]
+}
 
-${!hasConversationHistory ? 'Start with "⚠️ Couldn\'t pull the full conversation history."' : ''}
-${mondaySearched && !hasMondayData ? 'Flag that this patient was not found on Monday.com boards.' : ''}
-Keep it to 2-3 sentences. Be warm but direct.`;
+${!hasConversationHistory ? 'Add "Couldn\'t pull conversation history" to flags array.' : ''}
+${mondaySearched && !hasMondayData ? 'Add "Not found on Monday.com boards" to flags array.' : ''}
+Return ONLY the JSON object. No markdown fences, no explanation.`;
     } else {
       // ── EMAIL prompt: business-context-aware ──
       prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at an EMAIL in his focus queue.
@@ -257,17 +260,40 @@ Preview: ${item.text || ''}
 Time: ${item.time || ''}
 ${conversationHistory}${entityContext}
 
-## RESPONSE FORMAT
-Give Corey:
-1. Email type (vendor, patient, internal, spam, etc.) + 1-sentence summary
-2. What to do (pay, reply, delegate, skip, etc.)
-3. Urgency: Do Now, Today, or Can Wait
-
-Keep it to 2-3 sentences. Be warm but direct.`;
+## RESPONSE FORMAT — STRICT JSON ONLY
+Return ONLY a JSON object with these exact keys, no markdown, no explanation:
+{
+  "type": "vendor/invoice" or "patient" or "internal" or "spam" or "regulatory" or "other",
+  "summary": "1 sentence: what this email is about",
+  "action": "1 sentence: what Corey should do",
+  "urgency": "do_now" or "today" or "can_wait",
+  "flags": []
+}
+Return ONLY the JSON object. No markdown fences, no explanation.`;
     }
 
-    const response = await oneShot(prompt);
-    res.json({ context: response });
+    const raw = await oneShot(prompt);
+    // Parse structured JSON from Elena
+    let parsed;
+    try {
+      const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // Fallback: return as plain text if JSON parsing fails
+      parsed = { summary: raw, action: '', urgency: 'today', flags: [] };
+    }
+    // Normalize urgency
+    const urgency = (parsed.urgency || 'today').toLowerCase().replace(/\s+/g, '_');
+    res.json({
+      context: parsed.summary || raw, // backwards compat
+      structured: {
+        summary: parsed.summary || '',
+        action: parsed.action || '',
+        urgency: ['do_now', 'today', 'can_wait'].includes(urgency) ? urgency : 'today',
+        type: parsed.type || (isTextChannel ? 'patient' : 'email'),
+        flags: parsed.flags || [],
+      }
+    });
   } catch (err) {
     console.error('Focus context error:', err);
     res.status(500).json({ error: 'Context unavailable' });

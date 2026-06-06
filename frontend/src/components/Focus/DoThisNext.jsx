@@ -58,6 +58,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   const [showDone, setShowDone] = useState(false);
   const [showSnoozePicker, setShowSnoozePicker] = useState(false);
   const [elenaContext, setElenaContext] = useState(null);
+  const [elenaStructured, setElenaStructured] = useState(null);
   const [elenaLoading, setElenaLoading] = useState(false);
   const lastContextId = useRef(null);
 
@@ -126,6 +127,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
     if (!current || current.id === lastContextId.current) return;
     lastContextId.current = current.id;
     setElenaContext(null);
+    setElenaStructured(null);
     setElenaLoading(true);
     api.focusContext({
       channel: current.channel,
@@ -136,8 +138,10 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
       urgent: current.urgent,
     }).then(res => {
       setElenaContext(res.context);
+      setElenaStructured(res.structured || null);
     }).catch(() => {
       setElenaContext(null);
+      setElenaStructured(null);
     }).finally(() => {
       setElenaLoading(false);
     });
@@ -248,6 +252,53 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
             <div className="flex items-center gap-2 text-sm text-surface-200/40">
               <Loader size={12} className="animate-spin" />
               Reading context...
+            </div>
+          ) : elenaStructured ? (
+            <div className="space-y-3">
+              {/* Urgency badge */}
+              <div>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                  elenaStructured.urgency === 'do_now' ? 'bg-bad/20 text-bad' :
+                  elenaStructured.urgency === 'can_wait' ? 'bg-good/20 text-good' :
+                  'bg-amber-500/20 text-amber-400'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    elenaStructured.urgency === 'do_now' ? 'bg-bad animate-pulse' :
+                    elenaStructured.urgency === 'can_wait' ? 'bg-good' :
+                    'bg-amber-400'
+                  }`} />
+                  {elenaStructured.urgency === 'do_now' ? 'Do Now' :
+                   elenaStructured.urgency === 'can_wait' ? 'Can Wait' : 'Today'}
+                </span>
+                {elenaStructured.type && elenaStructured.type !== 'patient' && elenaStructured.type !== 'email' && (
+                  <span className="ml-2 text-xs text-surface-200/40 capitalize">{elenaStructured.type}</span>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div>
+                <p className="text-xs font-semibold text-surface-200/40 uppercase tracking-wider mb-1">What's This</p>
+                <p className="text-sm text-surface-200/80 leading-relaxed">{elenaStructured.summary}</p>
+              </div>
+
+              {/* Action — visually distinct */}
+              {elenaStructured.action && (
+                <div className="rounded-lg bg-brand-600/10 border border-brand-600/20 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">Next Step</p>
+                  <p className="text-sm text-white font-medium leading-relaxed">{elenaStructured.action}</p>
+                </div>
+              )}
+
+              {/* Flags */}
+              {elenaStructured.flags?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {elenaStructured.flags.map((flag, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+                      ⚠ {flag}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ) : elenaContext ? (
             <p className="text-sm text-surface-200/70 leading-relaxed">{elenaContext}</p>
