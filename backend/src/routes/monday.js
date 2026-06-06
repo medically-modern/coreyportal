@@ -79,7 +79,7 @@ export async function searchMondayPatient(query) {
                 items {
                   id name
                   group { title }
-                  column_values { id title text type }
+                  column_values { id text type }
                 }
               }
             }
@@ -87,6 +87,10 @@ export async function searchMondayPatient(query) {
         }),
       });
       const firstData = await firstRes.json();
+      if (firstData.errors) {
+        console.error(`Monday API error for board ${boardId}:`, firstData.errors);
+        continue;
+      }
       const board = firstData.data?.boards?.[0];
       if (!board) continue;
 
@@ -106,7 +110,7 @@ export async function searchMondayPatient(query) {
                 items {
                   id name
                   group { title }
-                  column_values { id title text type }
+                  column_values { id text type }
                 }
               }
             }`,
@@ -165,7 +169,7 @@ export async function searchMondayPatient(query) {
             columns: (item.column_values || [])
               .filter(c => c.text)
               .reduce((acc, c) => {
-                acc[c.title || c.id] = c.text;
+                acc[c.id] = c.text;
                 return acc;
               }, {}),
           });
