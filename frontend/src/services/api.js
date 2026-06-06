@@ -18,7 +18,7 @@ export const api = {
 
   // Gmail
   gmailStatus: () => request('/gmail/status'),
-  gmailThreads: () => request('/gmail/threads'),
+  gmailThreads: (max = 50) => request(`/gmail/threads?max=${max}`),
   gmailThread: (id) => request(`/gmail/thread/${id}`),
   gmailUnread: () => request('/gmail/unread'),
   gmailSummarize: (threadId) => request(`/gmail/summarize/${threadId}`),
@@ -29,7 +29,7 @@ export const api = {
   // Slack
   slackStatus: () => request('/slack/status'),
   slackChannels: () => request('/slack/channels'),
-  slackMessages: (channelId) => request(`/slack/channels/${channelId}/messages`),
+  slackMessages: (channelId, limit = 50) => request(`/slack/channels/${channelId}/messages?limit=${limit}`),
   slackThread: (channelId, ts) => request(`/slack/channels/${channelId}/thread/${ts}`),
   slackSummarize: (channelId) => request(`/slack/channels/${channelId}/summarize`),
   slackTriage: () => request('/slack/triage'),

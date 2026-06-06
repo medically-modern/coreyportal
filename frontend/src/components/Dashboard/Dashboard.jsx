@@ -109,10 +109,10 @@ export default function Dashboard({ onNavigate }) {
         if (status.connected) {
           const threads = await api.gmailThreads();
           const threadList = threads.threads || threads || [];
-          const unread = threadList.filter(t => t.unread);
+          const unread = threadList.filter(t => t.isUnread || t.unread);
           setEmailData({
-            count: unread.length || threadList.length,
-            items: threadList.slice(0, 5).map(t => ({
+            count: unread.length,
+            items: threadList.filter(t => t.isUnread || t.unread).slice(0, 5).map(t => ({
               text: `${t.from?.split('<')[0]?.trim() || 'Unknown'}: ${t.subject}`,
               time: timeAgo(t.date),
               urgent: t.unread,
@@ -191,7 +191,15 @@ export default function Dashboard({ onNavigate }) {
     setLoading(false);
   }
 
-  async function getElenaBriefing() {
+  async function getElenaBriefing(forceRefresh = false) {
+    // Cache Elena's briefing for 30 minutes
+    const cache = window.__elenaBriefingCache;
+    if (!forceRefresh && cache && (Date.now() - cache.time < 30 * 60 * 1000)) {
+      setBriefing(cache.text);
+      setBriefingLoading(false);
+      return;
+    }
+
     setBriefingLoading(true);
     try {
       const res = await api.chat(
@@ -202,8 +210,10 @@ export default function Dashboard({ onNavigate }) {
         Keep it to 4-6 sentences max. No bullet points. Write like you're texting a friend who's overwhelmed. Make him feel like things are manageable.`
       );
       setBriefing(res.response);
+      window.__elenaBriefingCache = { text: res.response, time: Date.now() };
     } catch (e) {
-      setBriefing("Hey Corey — I'm having a moment connecting, but your portal is loaded with the latest from all your channels. Take a look at the tiles below to see what's waiting.");
+      const fallback = "Hey Corey — I'm having a moment connecting, but your portal is loaded with the latest from all your channels. Take a look at the tiles below to see what's waiting.";
+      setBriefing(fallback);
     }
     setBriefingLoading(false);
   }
@@ -221,7 +231,7 @@ export default function Dashboard({ onNavigate }) {
           <h1 className="text-3xl font-bold">{greeting}, Corey</h1>
           <p className="text-surface-200/40 text-sm mt-1">Here's your world at a glance.</p>
         </div>
-        <button onClick={() => { loadAllChannels(); getElenaBriefing(); }} className="text-surface-200/30 hover:text-white transition">
+        <button onClick={() => { loadAllChannels(); getElenaBriefing(true); }} className="text-surface-200/30 hover:text-white transition">
           <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>

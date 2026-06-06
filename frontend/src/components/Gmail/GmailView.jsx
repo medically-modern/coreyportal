@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Search, RefreshCw, Loader, ExternalLink, Eye, Sparkles, AlertTriangle } from 'lucide-react';
+import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle, Circle } from 'lucide-react';
 import { api } from '../../services/api';
 
 function timeAgo(dateStr) {
@@ -13,26 +13,35 @@ function timeAgo(dateStr) {
 }
 
 function ThreadRow({ thread, onSelect, selected }) {
+  const unread = thread.isUnread || thread.unread;
   return (
     <div
       onClick={() => onSelect(thread)}
-      className={`flex items-center gap-3 p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''}`}
+      className={`flex items-start gap-3 p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''} ${unread ? 'bg-blue-500/5' : ''}`}
     >
-      {thread.unread && <span className="w-2 h-2 bg-brand-500 rounded-full shrink-0" />}
+      <div className="pt-1.5 shrink-0">
+        {unread ? (
+          <span className="block w-2.5 h-2.5 bg-blue-500 rounded-full" title="Unprocessed" />
+        ) : (
+          <span className="block w-2.5 h-2.5 border border-surface-200/20 rounded-full" />
+        )}
+      </div>
       <div className="min-w-0 flex-1">
         <div className="flex justify-between items-baseline">
-          <p className={`text-sm truncate ${thread.unread ? 'font-semibold' : ''}`}>{thread.from || 'Unknown'}</p>
-          <span className="text-xs text-surface-200/40 shrink-0 ml-2">{timeAgo(thread.date)}</span>
+          <p className={`text-sm truncate ${unread ? 'font-bold text-white' : 'text-surface-200/70'}`}>
+            {thread.from?.split('<')[0]?.trim() || 'Unknown'}
+          </p>
+          <span className="text-xs text-surface-200/30 shrink-0 ml-2">{timeAgo(thread.date)}</span>
         </div>
-        <p className="text-sm truncate text-surface-200/70">{thread.subject}</p>
-        <p className="text-xs truncate text-surface-200/40 mt-0.5">{thread.snippet}</p>
+        <p className={`text-sm truncate ${unread ? 'font-semibold text-surface-200/90' : 'text-surface-200/50'}`}>{thread.subject}</p>
+        <p className="text-xs truncate text-surface-200/30 mt-0.5">{thread.snippet}</p>
       </div>
     </div>
   );
 }
 
 export default function GmailView() {
-  const [connected, setConnected] = useState(null); // null = loading
+  const [connected, setConnected] = useState(null);
   const [threads, setThreads] = useState([]);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -40,6 +49,7 @@ export default function GmailView() {
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState('');
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [filter, setFilter] = useState('all'); // all | unread
 
   const API_BASE = import.meta.env.VITE_API_URL || 'https://corey-portal-api-production.up.railway.app/api';
 
@@ -49,7 +59,7 @@ export default function GmailView() {
       const status = await api.gmailStatus();
       setConnected(status.connected);
       if (status.connected) {
-        const data = await api.gmailThreads();
+        const data = await api.gmailThreads(50);
         setThreads(data.threads || data || []);
       }
     } catch (e) {
@@ -64,7 +74,7 @@ export default function GmailView() {
     setDetail(null);
     try {
       const data = await api.gmailThread(thread.id);
-      setDetail(data);
+      setDetail(data.thread || data);
     } catch (e) {}
   }
 
@@ -93,12 +103,14 @@ export default function GmailView() {
 
   useEffect(() => { loadGmail(); }, []);
 
+  const filteredThreads = filter === 'unread'
+    ? threads.filter(t => t.isUnread || t.unread)
+    : threads;
+
+  const unreadCount = threads.filter(t => t.isUnread || t.unread).length;
+
   if (connected === null && loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader className="animate-spin text-brand-500" size={24} />
-      </div>
-    );
+    return <div className="flex items-center justify-center h-64"><Loader className="animate-spin text-brand-500" size={24} /></div>;
   }
 
   if (connected === false) {
@@ -107,14 +119,9 @@ export default function GmailView() {
         <AlertTriangle size={40} className="mx-auto text-yellow-500" />
         <h2 className="text-lg font-semibold">Gmail Not Connected</h2>
         <p className="text-surface-200/60 text-sm max-w-md mx-auto">
-          Gmail needs to be authorized to show your emails. Click below to connect your Google account.
+          Gmail needs to be authorized to show emails. Click below to connect.
         </p>
-        <a
-          href={`${API_BASE.replace('/api', '')}/api/gmail/auth`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-primary inline-flex items-center gap-2"
-        >
+        <a href={`${API_BASE.replace('/api', '')}/api/gmail/auth`} target="_blank" rel="noopener noreferrer" className="btn-primary inline-flex items-center gap-2">
           <ExternalLink size={14} /> Connect Gmail
         </a>
       </div>
@@ -125,42 +132,52 @@ export default function GmailView() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold flex items-center gap-2">
-          <Mail size={20} /> Gmail
+          <Mail size={20} /> Email
+          <span className="text-sm font-normal text-surface-200/40">({threads.length} threads, {unreadCount} unprocessed)</span>
         </h1>
         <button onClick={loadGmail} className="text-surface-200/40 hover:text-white">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-200/40" />
-          <input
-            value={searchQ}
-            onChange={e => setSearchQ(e.target.value)}
-            placeholder="Search emails..."
-            className="input pl-9 w-full"
-          />
+      <div className="flex items-center gap-3">
+        <div className="flex gap-2">
+          <button onClick={() => setFilter('all')} className={`text-xs px-3 py-1.5 rounded-full transition ${filter === 'all' ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
+            All ({threads.length})
+          </button>
+          <button onClick={() => setFilter('unread')} className={`text-xs px-3 py-1.5 rounded-full transition ${filter === 'unread' ? 'bg-blue-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
+            Unprocessed ({unreadCount})
+          </button>
         </div>
-      </form>
+        <form onSubmit={handleSearch} className="flex-1">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-200/40" />
+            <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search emails..." className="input pl-9 w-full" />
+          </div>
+        </form>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0">
-          {threads.length === 0 && !loading && (
+          {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
+          {filteredThreads.length === 0 && !loading && (
             <p className="text-sm text-surface-200/40 p-4">No emails found.</p>
           )}
-          {threads.map((t, i) => (
+          {filteredThreads.map((t, i) => (
             <ThreadRow key={t.id || i} thread={t} onSelect={selectThread} selected={selected?.id === t.id} />
           ))}
         </div>
 
-        <div className="lg:col-span-3 card">
+        <div className="lg:col-span-3 card max-h-[70vh] overflow-y-auto">
           {!selected ? (
             <p className="text-surface-200/40 text-sm py-8 text-center">Select an email to view</p>
           ) : (
             <div className="space-y-4">
               <div>
-                <h2 className="font-semibold">{selected.subject}</h2>
+                <div className="flex items-center gap-2">
+                  {(selected.isUnread || selected.unread) && <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Unprocessed</span>}
+                  <h2 className="font-semibold">{selected.subject}</h2>
+                </div>
                 <p className="text-sm text-surface-200/60">{selected.from} · {timeAgo(selected.date)}</p>
               </div>
 

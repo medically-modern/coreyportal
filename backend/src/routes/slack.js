@@ -28,7 +28,7 @@ router.get('/channels', async (req, res) => {
 // Channel messages
 router.get('/channels/:id/messages', async (req, res) => {
   try {
-    const { limit = 30 } = req.query;
+    const { limit = 50 } = req.query;
     const messages = await getChannelMessages(req.params.id, parseInt(limit));
 
     // Ingest for Elena's context engine

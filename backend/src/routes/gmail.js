@@ -36,7 +36,7 @@ router.get('/status', async (req, res) => {
 // Inbox threads
 router.get('/threads', async (req, res) => {
   try {
-    const { max = 20, q = '' } = req.query;
+    const { max = 50, q = '' } = req.query;
     const threads = await getThreads({ maxResults: parseInt(max), q });
     res.json({ threads });
   } catch (err) {
@@ -111,7 +111,7 @@ router.get('/unread', async (req, res) => {
 // Search
 router.get('/search', async (req, res) => {
   try {
-    const { q, max = 10 } = req.query;
+    const { q, max = 50 } = req.query;
     if (!q) return res.status(400).json({ error: 'Query required' });
     const threads = await searchEmails(q, parseInt(max));
     res.json({ threads });

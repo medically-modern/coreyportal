@@ -27,7 +27,7 @@ async function getPlatform() {
 
 // ---- TEXT MESSAGES ----
 
-export async function getTextConversations(perPage = 25) {
+export async function getTextConversations(perPage = 100) {
   const p = await getPlatform();
 
   // Fetch SMS messages from message store
