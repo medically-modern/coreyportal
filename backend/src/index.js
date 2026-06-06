@@ -23,7 +23,13 @@ const PORT = process.env.PORT || 4000;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || /^https?:\/\/(medically-modern\.github\.io|localhost(:\d+)?)/i,
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    const allowed = /^https?:\/\/(medically-modern\.github\.io|localhost(:\d+)?)$/i;
+    if (allowed.test(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(morgan('short'));
