@@ -1,22 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StickyNote, X, Plus, Trash2, GripVertical } from 'lucide-react';
+import { StickyNote, X, Plus, Trash2 } from 'lucide-react';
+import { api } from '../../services/api';
 
-const STORAGE_KEY = 'corey-parking-lot';
-
-function loadNotes() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-  } catch { return []; }
-}
-
-function saveNotes(notes) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
-}
+const LOCAL_KEY = 'corey-parking-lot';
 
 function formatTime(ts) {
   const d = new Date(ts);
-  const now = new Date();
-  const diff = now - d;
+  const diff = Date.now() - d.getTime();
   if (diff < 60000) return 'just now';
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
@@ -24,14 +14,23 @@ function formatTime(ts) {
   return d.toLocaleDateString();
 }
 
+// Normalize a note from either server or local format
+function normalize(n) {
+  return {
+    id: n.id,
+    text: n.text,
+    ts: n.created_at ? new Date(n.created_at + 'Z').getTime() : (n.ts || Date.now()),
+    synced: n.synced !== false, // server notes are synced by default
+  };
+}
+
 export default function ParkingLot() {
-  const [notes, setNotes] = useState(loadNotes);
+  const [notes, setNotes] = useState([]);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [position, setPosition] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('corey-parking-pos')) || { x: null, y: null };
-    } catch { return { x: null, y: null }; }
+    try { return JSON.parse(localStorage.getItem('corey-parking-pos')) || { x: null, y: null }; }
+    catch { return { x: null, y: null }; }
   });
   const [dragging, setDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -41,21 +40,45 @@ export default function ParkingLot() {
   const inputRef = useRef(null);
   const dragStartPos = useRef(null);
 
-  // Save notes on change
-  useEffect(() => { saveNotes(notes); }, [notes]);
-
-  // Save position on change
+  // Load from server on mount, fall back to localStorage
   useEffect(() => {
-    if (position.x !== null) {
-      localStorage.setItem('corey-parking-pos', JSON.stringify(position));
-    }
+    (async () => {
+      try {
+        const { notes: serverNotes } = await api.notesGet();
+        const normalized = serverNotes.map(normalize);
+        setNotes(normalized);
+        // Cache locally
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized));
+        // Push any unsynced local notes to server
+        try {
+          const local = JSON.parse(localStorage.getItem(LOCAL_KEY + '-pending') || '[]');
+          for (const n of local) {
+            await api.notesCreate(n.text);
+          }
+          if (local.length > 0) {
+            localStorage.removeItem(LOCAL_KEY + '-pending');
+            // Re-fetch to get server IDs
+            const { notes: fresh } = await api.notesGet();
+            setNotes(fresh.map(normalize));
+          }
+        } catch {}
+      } catch {
+        // Offline — load from localStorage
+        try {
+          setNotes(JSON.parse(localStorage.getItem(LOCAL_KEY) || '[]'));
+        } catch { setNotes([]); }
+      }
+    })();
+  }, []);
+
+  // Save position
+  useEffect(() => {
+    if (position.x !== null) localStorage.setItem('corey-parking-pos', JSON.stringify(position));
   }, [position]);
 
   // Focus input when opened
   useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
+    if (open && inputRef.current) setTimeout(() => inputRef.current?.focus(), 100);
   }, [open]);
 
   // Drag handlers
@@ -71,15 +94,15 @@ export default function ParkingLot() {
 
   const handleMouseMove = useCallback((e) => {
     if (!dragging) return;
-    const x = Math.max(0, Math.min(window.innerWidth - 56, e.clientX - dragOffset.x));
-    const y = Math.max(0, Math.min(window.innerHeight - 56, e.clientY - dragOffset.y));
-    setPosition({ x, y });
+    setPosition({
+      x: Math.max(0, Math.min(window.innerWidth - 56, e.clientX - dragOffset.x)),
+      y: Math.max(0, Math.min(window.innerHeight - 56, e.clientY - dragOffset.y)),
+    });
   }, [dragging, dragOffset]);
 
   const handleMouseUp = useCallback((e) => {
     if (!dragging) return;
     setDragging(false);
-    // If mouse moved more than 5px, it was a drag not a click
     if (dragStartPos.current) {
       const dx = Math.abs(e.clientX - dragStartPos.current.x);
       const dy = Math.abs(e.clientY - dragStartPos.current.y);
@@ -101,18 +124,45 @@ export default function ParkingLot() {
     }
   }, [dragging, handleMouseMove, handleMouseUp]);
 
-  function addNote() {
+  async function addNote() {
     if (!input.trim()) return;
-    const newNote = { id: Date.now(), text: input.trim(), ts: Date.now() };
-    setNotes(prev => [newNote, ...prev]);
+    const text = input.trim();
     setInput('');
-    // Pulse effect
     setPulse(true);
     setTimeout(() => setPulse(false), 600);
+
+    // Optimistic local add
+    const tempNote = { id: `temp-${Date.now()}`, text, ts: Date.now(), synced: false };
+    setNotes(prev => [tempNote, ...prev]);
+
+    try {
+      const { note } = await api.notesCreate(text);
+      // Replace temp with server version
+      setNotes(prev => prev.map(n => n.id === tempNote.id ? normalize(note) : n));
+      // Update local cache
+      setNotes(prev => {
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(prev));
+        return prev;
+      });
+    } catch {
+      // Queue for later sync
+      try {
+        const pending = JSON.parse(localStorage.getItem(LOCAL_KEY + '-pending') || '[]');
+        pending.push({ text });
+        localStorage.setItem(LOCAL_KEY + '-pending', JSON.stringify(pending));
+      } catch {}
+    }
   }
 
-  function deleteNote(id) {
-    setNotes(prev => prev.filter(n => n.id !== id));
+  async function deleteNote(id) {
+    setNotes(prev => {
+      const next = prev.filter(n => n.id !== id);
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(next));
+      return next;
+    });
+    if (typeof id === 'number') {
+      try { await api.notesDelete(id); } catch {}
+    }
   }
 
   function handleBubbleClick() {
@@ -127,7 +177,6 @@ export default function ParkingLot() {
     }
   }
 
-  // Default position: bottom-right
   const posStyle = position.x !== null
     ? { left: position.x, top: position.y }
     : { right: 24, bottom: 24 };
@@ -141,7 +190,6 @@ export default function ParkingLot() {
       {/* Expanded Panel */}
       {open && (
         <div className="parking-panel absolute bottom-16 right-0 w-80 max-h-96 bg-surface-800 border border-surface-200/20 rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-parking-open">
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-surface-200/10 bg-surface-900/50">
             <div className="flex items-center gap-2">
               <StickyNote size={16} className="text-amber-400" />
@@ -153,7 +201,6 @@ export default function ParkingLot() {
             </button>
           </div>
 
-          {/* Quick Input */}
           <div className="p-3 border-b border-surface-200/10">
             <div className="flex gap-2">
               <textarea
@@ -175,7 +222,6 @@ export default function ParkingLot() {
             </div>
           </div>
 
-          {/* Notes List */}
           <div className="flex-1 overflow-y-auto">
             {notes.length === 0 ? (
               <div className="py-8 text-center text-sm text-surface-200/30">
@@ -194,7 +240,10 @@ export default function ParkingLot() {
                       <Trash2 size={12} />
                     </button>
                   </div>
-                  <p className="text-xs text-surface-200/20 mt-1">{formatTime(note.ts)}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs text-surface-200/20">{formatTime(note.ts)}</p>
+                    {!note.synced && <span className="text-[9px] text-amber-500/50">saving...</span>}
+                  </div>
                 </div>
               ))
             )}

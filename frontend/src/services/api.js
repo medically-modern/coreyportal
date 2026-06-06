@@ -48,8 +48,6 @@ export const api = {
   questions: (status = 'pending') => request(`/qa/questions?status=${status}`),
   submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
   answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
-  archiveQuestion: (id) => request(`/qa/questions/${id}/archive`, { method: 'POST' }),
-  restoreQuestion: (id) => request(`/qa/questions/${id}/restore`, { method: 'POST' }),
 
   // Assistant (Elena)
   chat: (message) => request('/assistant/chat', { method: 'POST', body: JSON.stringify({ message }) }),
@@ -65,4 +63,9 @@ export const api = {
   // Elena memory
   elenaMemory: () => request('/elena/memory'),
   elenaTeach: (fact) => request('/elena/teach', { method: 'POST', body: JSON.stringify(fact) }),
+
+  // Parking Lot notes
+  notesGet: () => request('/notes'),
+  notesCreate: (text) => request('/notes', { method: 'POST', body: JSON.stringify({ text }) }),
+  notesDelete: (id) => request(`/notes/${id}`, { method: 'DELETE' }),
 };
