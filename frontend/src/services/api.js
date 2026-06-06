@@ -13,30 +13,53 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  // Dashboard
-  dashboard: () => request('/dashboard'),
+  // Health
+  health: () => request('/health'),
 
   // Gmail
-  gmailThreads: (q = '') => request(`/gmail/threads?q=${encodeURIComponent(q)}`),
+  gmailStatus: () => request('/gmail/status'),
+  gmailThreads: () => request('/gmail/threads'),
+  gmailThread: (id) => request(`/gmail/thread/${id}`),
+  gmailUnread: () => request('/gmail/unread'),
   gmailSummarize: (threadId) => request(`/gmail/summarize/${threadId}`),
+  gmailTriage: () => request('/gmail/triage'),
+  gmailSearch: (q) => request(`/gmail/search?q=${encodeURIComponent(q)}`),
+  gmailMarkRead: (threadId) => request(`/gmail/thread/${threadId}/read`, { method: 'POST' }),
 
-  // Slack / Q&A
-  questions: (status = 'pending') => request(`/qa/questions?status=${status}`),
-  submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
-  answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
+  // Slack
+  slackStatus: () => request('/slack/status'),
+  slackChannels: () => request('/slack/channels'),
+  slackMessages: (channelId) => request(`/slack/channels/${channelId}/messages`),
+  slackThread: (channelId, ts) => request(`/slack/channels/${channelId}/thread/${ts}`),
+  slackSummarize: (channelId) => request(`/slack/channels/${channelId}/summarize`),
+  slackTriage: () => request('/slack/triage'),
+  slackSearch: (q) => request(`/slack/search?q=${encodeURIComponent(q)}`),
+  slackDMs: () => request('/slack/dms'),
 
   // RingCentral
+  rcStatus: () => request('/ringcentral/status'),
   rcMessages: () => request('/ringcentral/messages'),
-  rcSummarize: (conversationId) => request(`/ringcentral/summarize/${conversationId}`),
-  rcVoicemails: () => request('/ringcentral/voicemails'),
+  rcSummarize: (phone) => request(`/ringcentral/summarize/${encodeURIComponent(phone)}`),
 
   // Monday
   mondayBoards: () => request('/monday/boards'),
 
-  // Assistant
-  chat: (message, context = {}) => request('/assistant/chat', { method: 'POST', body: JSON.stringify({ message, context }) }),
-  chatHistory: () => request('/assistant/history'),
+  // Q&A
+  questions: (status = 'pending') => request(`/qa/questions?status=${status}`),
+  submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
+  answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
 
-  // Health
-  health: () => request('/health'),
+  // Assistant (Elena)
+  chat: (message) => request('/assistant/chat', { method: 'POST', body: JSON.stringify({ message }) }),
+  chatHistory: () => request('/assistant/history'),
+  followups: () => request('/assistant/followups'),
+  decisions: () => request('/assistant/decisions'),
+
+  // Context
+  searchEntities: (q) => request(`/context/entities?q=${encodeURIComponent(q)}`),
+  entityDetail: (name) => request(`/context/entity/${encodeURIComponent(name)}`),
+
+  // Elena memory
+  elenaMemory: () => request('/elena/memory'),
+  elenaTeach: (fact) => request('/elena/teach', { method: 'POST', body: JSON.stringify(fact) }),
 };

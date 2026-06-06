@@ -1,83 +1,137 @@
-import React, { useState } from 'react';
-import { Phone, MessageSquare, Voicemail, Bot, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Phone, RefreshCw, Loader, MessageSquare, Sparkles, ChevronRight, AlertTriangle } from 'lucide-react';
+import { api } from '../../services/api';
 
-const MOCK_TEXTS = [
-  { id: 1, contact: 'Mike (Warehouse)', lastMsg: 'The wheelchair shipment is delayed 2 days', time: '3 hrs ago', unread: 2 },
-  { id: 2, contact: 'Dr. Reynolds', lastMsg: 'Can you call me about the CPAP order?', time: '5 hrs ago', unread: 1 },
-  { id: 3, contact: 'Lisa (Sales)', lastMsg: 'New lead from the health fair — DME referral', time: 'Yesterday', unread: 0 },
-];
-
-const MOCK_VOICEMAILS = [
-  { id: 1, from: 'Dr. Reynolds', duration: '1:23', time: '23 min ago', transcription: null },
-  { id: 2, from: 'Insurance Rep (Aetna)', duration: '0:45', time: '2 hrs ago', transcription: null },
-];
-
-function TextConvo({ convo, onSummarize }) {
-  return (
-    <div className="flex items-center gap-4 px-4 py-3 border-b border-surface-200/5 hover:bg-surface-800/50 cursor-pointer">
-      <div className="w-10 h-10 bg-surface-800 rounded-full flex items-center justify-center text-sm font-bold">
-        {convo.contact.charAt(0)}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{convo.contact}</span>
-          {convo.unread > 0 && <span className="w-5 h-5 bg-brand-600 rounded-full text-[10px] flex items-center justify-center font-bold">{convo.unread}</span>}
-        </div>
-        <p className="text-xs text-surface-200/40 truncate">{convo.lastMsg}</p>
-      </div>
-      <span className="text-xs text-surface-200/40">{convo.time}</span>
-      <button onClick={(e) => { e.stopPropagation(); onSummarize(convo.id); }} className="text-brand-500 hover:text-brand-400" title="AI Summarize">
-        <Bot size={16} />
-      </button>
-    </div>
-  );
-}
-
-function VoicemailRow({ vm }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="border-b border-surface-200/5">
-      <div className="flex items-center gap-4 px-4 py-3 hover:bg-surface-800/50 cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        <Voicemail size={18} className="text-surface-200/40" />
-        <div className="flex-1">
-          <span className="text-sm font-medium">{vm.from}</span>
-          <span className="text-xs text-surface-200/40 ml-2">{vm.duration}</span>
-        </div>
-        <span className="text-xs text-surface-200/40">{vm.time}</span>
-        <button className="text-brand-500 hover:text-brand-400 text-xs flex items-center gap-1">
-          <Bot size={14} /> Transcribe
-        </button>
-        <ChevronDown size={16} className={`text-surface-200/40 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </div>
-      {expanded && (
-        <div className="px-4 pb-3 ml-10">
-          <p className="text-xs text-surface-200/60 italic">Transcription will appear here after processing...</p>
-        </div>
-      )}
-    </div>
-  );
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 export default function RingCentralView() {
-  const [tab, setTab] = useState('texts');
+  const [conversations, setConversations] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  async function loadMessages() {
+    setLoading(true);
+    try {
+      const status = await api.rcStatus();
+      setConnected(status.connected !== false);
+      const data = await api.rcMessages();
+      setConversations(data.conversations || []);
+    } catch (e) {
+      setConnected(false);
+    }
+    setLoading(false);
+  }
+
+  async function summarizeConvo(contact) {
+    setSummaryLoading(true);
+    try {
+      const data = await api.rcSummarize(contact);
+      setSummary(data.summary || data.response || JSON.stringify(data));
+    } catch (e) {
+      setSummary('Could not generate summary.');
+    }
+    setSummaryLoading(false);
+  }
+
+  useEffect(() => { loadMessages(); }, []);
+
+  if (connected === false) {
+    return (
+      <div className="card text-center py-12 space-y-4">
+        <AlertTriangle size={40} className="mx-auto text-yellow-500" />
+        <h2 className="text-lg font-semibold">RingCentral Not Connected</h2>
+        <p className="text-surface-200/60 text-sm">RingCentral API credentials need to be configured on the backend.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Phone size={22} /> Calls & Texts</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setTab('texts')} className={`text-xs px-3 py-1.5 rounded-lg ${tab === 'texts' ? 'bg-brand-600 text-white' : 'bg-surface-800 text-surface-200/60'}`}>
-            <MessageSquare size={14} className="inline mr-1" />Texts
-          </button>
-          <button onClick={() => setTab('voicemails')} className={`text-xs px-3 py-1.5 rounded-lg ${tab === 'voicemails' ? 'bg-brand-600 text-white' : 'bg-surface-800 text-surface-200/60'}`}>
-            <Voicemail size={14} className="inline mr-1" />Voicemails
-          </button>
-        </div>
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          <Phone size={20} /> RingCentral
+        </h1>
+        <button onClick={loadMessages} className="text-surface-200/40 hover:text-white">
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      <div className="card p-0 overflow-hidden">
-        {tab === 'texts' && MOCK_TEXTS.map((c) => <TextConvo key={c.id} convo={c} onSummarize={() => {}} />)}
-        {tab === 'voicemails' && MOCK_VOICEMAILS.map((vm) => <VoicemailRow key={vm.id} vm={vm} />)}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0">
+          {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
+          {conversations.length === 0 && !loading && (
+            <p className="text-sm text-surface-200/40 p-4">No conversations found.</p>
+          )}
+          {conversations.map((convo, i) => {
+            const lastMsg = (convo.messages || [])[0];
+            const unread = (convo.messages || []).some(m => m.readStatus === 'Unread');
+            return (
+              <div
+                key={i}
+                onClick={() => { setSelected(convo); setSummary(null); }}
+                className={`flex items-center justify-between p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected?.contact === convo.contact ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    {unread && <span className="w-2 h-2 bg-brand-500 rounded-full shrink-0" />}
+                    <span className={`text-sm truncate ${unread ? 'font-semibold' : ''}`}>{convo.contact}</span>
+                  </div>
+                  {lastMsg && (
+                    <p className="text-xs text-surface-200/40 truncate mt-0.5">
+                      {lastMsg.direction === 'Outbound' ? 'You: ' : ''}{lastMsg.text || '(no text)'}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-surface-200/30">{lastMsg ? timeAgo(lastMsg.time) : ''}</span>
+                  <ChevronRight size={14} className="text-surface-200/20" />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="lg:col-span-3 card max-h-[70vh] overflow-y-auto">
+          {!selected ? (
+            <p className="text-surface-200/40 text-sm py-8 text-center">Select a conversation to view</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-3 border-b border-surface-200/10">
+                <h2 className="font-semibold">{selected.contact}</h2>
+                <button onClick={() => summarizeConvo(selected.contact)} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
+                  {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  Summarize
+                </button>
+              </div>
+
+              {summary && (
+                <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg p-3">
+                  <p className="text-sm text-surface-200/80 whitespace-pre-wrap">{summary}</p>
+                </div>
+              )}
+
+              {[...(selected.messages || [])].reverse().map((msg, i) => (
+                <div key={msg.id || i} className={`flex ${msg.direction === 'Outbound' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-lg px-3 py-2 ${msg.direction === 'Outbound' ? 'bg-brand-600/20' : 'bg-surface-200/10'}`}>
+                    <p className="text-sm whitespace-pre-wrap">{msg.text || '(no text)'}</p>
+                    <p className="text-xs text-surface-200/30 mt-1">{timeAgo(msg.time)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

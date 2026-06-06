@@ -1,22 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Phone, HelpCircle, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Mail, Phone, MessageSquare, HelpCircle, AlertTriangle, Loader, Bot, RefreshCw } from 'lucide-react';
+import { api } from '../../services/api';
 
-const MOCK_STATS = {
-  unreadEmails: 12,
-  pendingQuestions: 8,
-  missedCalls: 3,
-  unrepliedTexts: 5,
-  urgentItems: 4,
-};
-
-function StatCard({ icon: Icon, label, value, color = 'text-white', urgent = false }) {
+function StatCard({ icon: Icon, label, value, color = 'text-white', urgent = false, loading }) {
   return (
     <div className="card flex items-center gap-4">
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${urgent ? 'bg-urgent/20' : 'bg-brand-600/20'}`}>
         <Icon size={20} className={urgent ? 'text-urgent' : 'text-brand-500'} />
       </div>
       <div>
-        <p className="text-2xl font-bold">{value}</p>
+        <p className="text-2xl font-bold">{loading ? '—' : value}</p>
         <p className="text-xs text-surface-200/60">{label}</p>
       </div>
     </div>
@@ -36,44 +29,174 @@ function PriorityItem({ title, source, time, priority }) {
   );
 }
 
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
 export default function Dashboard() {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ emails: 0, texts: 0, slackMsgs: 0, questions: 0 });
+  const [feed, setFeed] = useState([]);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  async function loadDashboard() {
+    setLoading(true);
+    const items = [];
+
+    try {
+      // Gmail
+      const gmailStatus = await api.gmailStatus().catch(() => ({ connected: false }));
+      let emailCount = 0;
+      if (gmailStatus.connected) {
+        try {
+          const unread = await api.gmailUnread();
+          emailCount = unread.count || 0;
+          const threads = await api.gmailThreads();
+          (threads || []).slice(0, 3).forEach(t => {
+            items.push({
+              title: `${t.from}: ${t.subject}`,
+              source: 'Gmail',
+              time: timeAgo(t.date),
+              priority: t.unread ? 'warn' : 'good',
+            });
+          });
+        } catch (e) {}
+      }
+
+      // Slack
+      let slackCount = 0;
+      try {
+        const channels = await api.slackChannels();
+        const mainChannel = (channels || []).find(c => c.name === 'med-mod-onboarding') || (channels || [])[0];
+        if (mainChannel) {
+          const msgs = await api.slackMessages(mainChannel.id);
+          const msgList = msgs.messages || msgs || [];
+          slackCount = msgList.length;
+          msgList.slice(0, 3).forEach(m => {
+            items.push({
+              title: `${m.user_name || 'Team'}: ${(m.text || '').slice(0, 80)}`,
+              source: `Slack #${mainChannel.name}`,
+              time: timeAgo(m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : null),
+              priority: (m.text || '').match(/urgent|escalat|ASAP|NOT CLEAR/i) ? 'urgent' : 'good',
+            });
+          });
+        }
+      } catch (e) {}
+
+      // RingCentral
+      let textCount = 0;
+      try {
+        const rc = await api.rcMessages();
+        const convos = rc.conversations || [];
+        textCount = convos.reduce((sum, c) => sum + (c.messages || []).filter(m => m.readStatus === 'Unread').length, 0);
+        convos.slice(0, 3).forEach(c => {
+          const lastMsg = (c.messages || [])[0];
+          if (lastMsg) {
+            items.push({
+              title: `${c.contact}: ${lastMsg.text || '(no text)'}`,
+              source: 'RingCentral',
+              time: timeAgo(lastMsg.time),
+              priority: lastMsg.readStatus === 'Unread' ? 'warn' : 'good',
+            });
+          }
+        });
+      } catch (e) {}
+
+      // Q&A
+      let qCount = 0;
+      try {
+        const qs = await api.questions('pending');
+        qCount = (qs || []).length;
+        (qs || []).slice(0, 2).forEach(q => {
+          items.push({
+            title: q.question,
+            source: `Q&A from ${q.from || 'Team'}`,
+            time: timeAgo(q.created_at),
+            priority: 'warn',
+          });
+        });
+      } catch (e) {}
+
+      // Sort by priority
+      const order = { urgent: 0, warn: 1, good: 2 };
+      items.sort((a, b) => (order[a.priority] || 2) - (order[b.priority] || 2));
+
+      setStats({ emails: emailCount, texts: textCount, slackMsgs: slackCount, questions: qCount });
+      setFeed(items);
+    } catch (e) {
+      console.error('Dashboard load error:', e);
+    }
+    setLoading(false);
+  }
+
+  async function getAiSummary() {
+    setSummaryLoading(true);
+    try {
+      const res = await api.chat("Give me a quick status briefing. What's the most important thing I should handle right now? Keep it to 3-4 sentences max.");
+      setAiSummary(res.response);
+    } catch (e) {
+      setAiSummary("Couldn't connect to Elena right now. Check back in a moment.");
+    }
+    setSummaryLoading(false);
+  }
+
+  useEffect(() => { loadDashboard(); }, []);
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Good morning, Corey</h1>
-        <p className="text-surface-200/60 text-sm mt-1">Here's what needs your attention today.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{greeting}, Corey</h1>
+          <p className="text-surface-200/60 text-sm mt-1">Here's what needs your attention.</p>
+        </div>
+        <button onClick={loadDashboard} className="text-surface-200/40 hover:text-white">
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Mail} label="Unread emails" value={MOCK_STATS.unreadEmails} />
-        <StatCard icon={HelpCircle} label="Pending questions" value={MOCK_STATS.pendingQuestions} />
-        <StatCard icon={Phone} label="Missed calls" value={MOCK_STATS.missedCalls} urgent />
-        <StatCard icon={AlertTriangle} label="Urgent items" value={MOCK_STATS.urgentItems} urgent />
+        <StatCard icon={Mail} label="Unread emails" value={stats.emails} loading={loading} />
+        <StatCard icon={MessageSquare} label="Slack messages" value={stats.slackMsgs} loading={loading} />
+        <StatCard icon={Phone} label="Unread texts" value={stats.texts} loading={loading} urgent={stats.texts > 0} />
+        <StatCard icon={HelpCircle} label="Pending questions" value={stats.questions} loading={loading} />
       </div>
 
-      {/* Priority feed */}
       <div className="card">
-        <div className="card-header">Priority Feed — AI Triaged</div>
-        <PriorityItem title="Voicemail from Dr. Reynolds about CPAP order" source="RingCentral" time="23 min ago" priority="urgent" />
-        <PriorityItem title="Slack: Sarah asked about insurance verification process" source="Questions" time="1 hr ago" priority="warn" />
-        <PriorityItem title="Gmail: Supplier invoice needs approval ($2,400)" source="Gmail" time="2 hrs ago" priority="warn" />
-        <PriorityItem title="Monday: DME compliance checklist due Friday" source="Monday" time="Today" priority="good" />
-        <PriorityItem title="Text from Mike: shipping delay on wheelchair order" source="RingCentral" time="3 hrs ago" priority="urgent" />
+        <div className="card-header flex items-center justify-between">
+          <span>Priority Feed — Live</span>
+          {loading && <Loader size={14} className="animate-spin text-surface-200/40" />}
+        </div>
+        {feed.length === 0 && !loading && (
+          <p className="text-sm text-surface-200/40 py-4">No items to show. Everything's clear!</p>
+        )}
+        {feed.slice(0, 8).map((item, i) => (
+          <PriorityItem key={i} {...item} />
+        ))}
       </div>
 
-      {/* AI Summary */}
       <div className="card border-brand-600/30">
         <div className="card-header flex items-center gap-2">
           <span className="w-2 h-2 bg-brand-500 rounded-full animate-pulse" />
-          Claude's Take
+          Elena's Take
         </div>
-        <p className="text-sm text-surface-200/80 leading-relaxed">
-          You have <strong>4 urgent items</strong> this morning. The voicemail from Dr. Reynolds and Mike's shipping delay 
-          should be handled first — both are customer-facing. Sarah's question about insurance verification is something 
-          I can draft a response for if you'd like. The supplier invoice is routine but due today.
-        </p>
-        <button className="btn-primary mt-4 text-sm">Let Claude handle the easy ones</button>
+        {aiSummary ? (
+          <p className="text-sm text-surface-200/80 leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
+        ) : (
+          <button onClick={getAiSummary} disabled={summaryLoading} className="btn-primary text-sm flex items-center gap-2">
+            {summaryLoading ? <Loader size={14} className="animate-spin" /> : <Bot size={14} />}
+            {summaryLoading ? 'Thinking...' : 'Get Elena\'s briefing'}
+          </button>
+        )}
       </div>
     </div>
   );

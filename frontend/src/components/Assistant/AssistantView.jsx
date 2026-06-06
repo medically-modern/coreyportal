@@ -1,116 +1,148 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bot, Send, Sparkles } from 'lucide-react';
-
-const INITIAL_MESSAGES = [
-  {
-    role: 'assistant',
-    content: "Hey Corey — I'm your AI assistant. I can help you triage emails, draft responses, summarize text conversations, answer questions about your business, or just help you think through decisions. What do you need?",
-  },
-];
-
-function ChatBubble({ msg }) {
-  const isUser = msg.role === 'user';
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      {!isUser && (
-        <div className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center mr-3 flex-shrink-0 mt-1">
-          <Bot size={16} />
-        </div>
-      )}
-      <div className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-        isUser ? 'bg-brand-600 text-white' : 'bg-surface-800 text-surface-200/90'
-      }`}>
-        {msg.content}
-      </div>
-    </div>
-  );
-}
-
-const SUGGESTIONS = [
-  "Summarize my unread emails",
-  "What's urgent today?",
-  "Draft a reply to Dr. Reynolds",
-  "Show me pending questions",
-];
+import React, { useState, useEffect, useRef } from 'react';
+import { Bot, Send, Loader, Sparkles } from 'lucide-react';
+import { api } from '../../services/api';
 
 export default function AssistantView() {
-  const [messages, setMessages] = useState(INITIAL_MESSAGES);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const bottomRef = useRef(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const endRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    async function loadHistory() {
+      try {
+        const history = await api.chatHistory();
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(history.map(h => ({
+            role: h.role,
+            content: h.content || h.message || h.response,
+            time: h.timestamp || h.created_at,
+          })));
+        }
+      } catch (e) {}
+      setHistoryLoaded(true);
+    }
+    loadHistory();
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const send = async (text) => {
-    if (!text.trim()) return;
-    const userMsg = { role: 'user', content: text.trim() };
-    setMessages((m) => [...m, userMsg]);
+  async function send(e) {
+    e.preventDefault();
+    const msg = input.trim();
+    if (!msg || loading) return;
+
     setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: msg, time: new Date().toISOString() }]);
     setLoading(true);
 
-    // TODO: Replace with real API call
-    setTimeout(() => {
-      setMessages((m) => [...m, {
+    try {
+      const data = await api.chat(msg);
+      setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `I'll help with that. [This is a placeholder — the Claude API integration will power real responses here, with full context from your Gmail, RingCentral, Slack, and Q&A data.]`,
+        content: data.response || data.message || 'No response.',
+        time: new Date().toISOString(),
       }]);
-      setLoading(false);
-    }, 1000);
-  };
+    } catch (e) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "Sorry, I couldn't connect right now. Try again in a moment.",
+        time: new Date().toISOString(),
+      }]);
+    }
+    setLoading(false);
+  }
+
+  const suggestions = [
+    "What's the most urgent thing I should handle right now?",
+    "Summarize my recent Slack activity",
+    "Who has been trying to reach me?",
+    "What's the status of our current authorizations?",
+  ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-5rem)]">
-      <div className="flex items-center gap-2 mb-4">
-        <h1 className="text-xl font-bold flex items-center gap-2"><Bot size={22} /> AI Assistant</h1>
-        <span className="badge-good">Online</span>
+    <div className="flex flex-col h-[calc(100vh-8rem)]">
+      <div className="flex items-center gap-3 pb-4 border-b border-surface-200/10">
+        <div className="w-10 h-10 rounded-full bg-brand-600/20 flex items-center justify-center">
+          <Bot size={20} className="text-brand-500" />
+        </div>
+        <div>
+          <h1 className="text-lg font-bold">Elena</h1>
+          <p className="text-xs text-surface-200/40">Your AI executive assistant — knows your team, your patterns, your business</p>
+        </div>
+        <span className="ml-auto flex items-center gap-1 text-xs text-green-400">
+          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> Online
+        </span>
       </div>
 
-      {/* Chat area */}
-      <div className="flex-1 overflow-y-auto pr-2 space-y-1">
-        {messages.map((msg, i) => <ChatBubble key={i} msg={msg} />)}
-        {loading && (
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center flex-shrink-0">
-              <Bot size={16} />
+      <div className="flex-1 overflow-y-auto py-4 space-y-4">
+        {messages.length === 0 && historyLoaded && (
+          <div className="text-center py-12 space-y-6">
+            <div className="w-16 h-16 rounded-full bg-brand-600/20 flex items-center justify-center mx-auto">
+              <Sparkles size={28} className="text-brand-500" />
             </div>
-            <div className="bg-surface-800 rounded-2xl px-4 py-3">
-              <div className="flex gap-1">
-                <span className="w-2 h-2 bg-surface-200/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 bg-surface-200/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 bg-surface-200/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
+            <div>
+              <p className="text-surface-200/60 text-sm">Hi Corey! I'm Elena, your personal assistant.</p>
+              <p className="text-surface-200/40 text-xs mt-1">I know your team, your communications, and your business. Ask me anything.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 justify-center max-w-lg mx-auto">
+              {suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setInput(s); }}
+                  className="text-xs bg-surface-200/5 hover:bg-surface-200/10 border border-surface-200/10 rounded-full px-3 py-1.5 text-surface-200/60 transition"
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
+
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-lg px-4 py-3 ${
+              msg.role === 'user'
+                ? 'bg-brand-600/20 border border-brand-600/30'
+                : 'bg-surface-200/5 border border-surface-200/10'
+            }`}>
+              {msg.role === 'assistant' && (
+                <p className="text-xs text-brand-500 font-medium mb-1 flex items-center gap-1">
+                  <Bot size={10} /> Elena
+                </p>
+              )}
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-surface-200/5 border border-surface-200/10 rounded-lg px-4 py-3 flex items-center gap-2">
+              <Loader size={14} className="animate-spin text-brand-500" />
+              <span className="text-sm text-surface-200/40">Elena is thinking...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={endRef} />
       </div>
 
-      {/* Suggestions */}
-      {messages.length <= 1 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {SUGGESTIONS.map((s) => (
-            <button key={s} onClick={() => send(s)} className="text-xs bg-surface-800 hover:bg-surface-800/80 text-surface-200/60 hover:text-white px-3 py-1.5 rounded-full transition-colors flex items-center gap-1">
-              <Sparkles size={12} /> {s}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Input */}
-      <div className="flex items-center gap-3 bg-surface-800 rounded-xl px-4 py-3">
+      <form onSubmit={send} className="flex gap-2 pt-4 border-t border-surface-200/10">
         <input
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send(input)}
-          placeholder="Ask Claude anything..."
-          className="flex-1 bg-transparent text-sm text-white placeholder-surface-200/30 outline-none"
+          onChange={e => setInput(e.target.value)}
+          placeholder="Ask Elena anything..."
+          className="input flex-1"
+          disabled={loading}
         />
-        <button onClick={() => send(input)} disabled={!input.trim() || loading} className="text-brand-500 hover:text-brand-400 disabled:text-surface-200/20">
-          <Send size={18} />
+        <button type="submit" disabled={loading || !input.trim()} className="btn-primary px-4">
+          <Send size={16} />
         </button>
-      </div>
+      </form>
     </div>
   );
 }
