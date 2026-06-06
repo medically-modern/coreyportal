@@ -18,7 +18,7 @@ export const api = {
 
   // Gmail
   gmailStatus: () => request('/gmail/status'),
-  gmailThreads: (max = 50) => request(`/gmail/threads?max=${max}`),
+  gmailThreads: (max = 100) => request(`/gmail/threads?max=${max}`),
   gmailThread: (id) => request(`/gmail/thread/${id}`),
   gmailUnread: () => request('/gmail/unread'),
   gmailSummarize: (threadId) => request(`/gmail/summarize/${threadId}`),

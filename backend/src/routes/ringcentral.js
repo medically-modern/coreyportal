@@ -24,7 +24,7 @@ router.get('/status', async (req, res) => {
 // Text conversations (grouped by contact)
 router.get('/messages', async (req, res) => {
   try {
-    const convos = await getTextConversations(parseInt(req.query.perPage) || 25);
+    const convos = await getTextConversations(parseInt(req.query.perPage) || 100, parseInt(req.query.daysBack) || null);
     res.json({ conversations: convos });
   } catch (err) {
     console.error('RC messages error:', err.message);

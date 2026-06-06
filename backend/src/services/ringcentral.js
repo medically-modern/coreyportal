@@ -27,16 +27,45 @@ async function getPlatform() {
 
 // ---- TEXT MESSAGES ----
 
-export async function getTextConversations(perPage = 100) {
+export async function getTextConversations(perPage = 100, daysBack = null) {
   const p = await getPlatform();
 
-  // Fetch SMS messages from message store
-  const res = await p.get('/restapi/v1.0/account/~/extension/~/message-store', {
+  const params = {
     messageType: ['SMS'],
     perPage,
     direction: ['Inbound', 'Outbound'],
-  });
-  const data = await res.json();
+  };
+
+  // Filter by date range if specified
+  if (daysBack) {
+    const since = new Date();
+    since.setDate(since.getDate() - daysBack);
+    params.dateFrom = since.toISOString();
+  }
+
+  // Paginate to get all messages in range
+  let allRecords = [];
+  let page = 1;
+  let hasMore = true;
+
+  while (hasMore) {
+    params.page = page;
+    const res = await p.get('/restapi/v1.0/account/~/extension/~/message-store', params);
+    const data = await res.json();
+    const records = data.records || [];
+    allRecords = allRecords.concat(records);
+
+    // RC API paging
+    if (data.paging && data.paging.page < data.paging.totalPages) {
+      page++;
+    } else {
+      hasMore = false;
+    }
+    // Safety cap
+    if (allRecords.length > 500) { hasMore = false; }
+  }
+
+  const data = { records: allRecords };
 
   // Group messages by conversation (by phone number)
   const convos = {};
