@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { chat } from '../services/claude.js';
 import { getRecentDecisions, getPendingFollowups, searchEntities } from '../services/context.js';
 import { getDb } from '../db/init.js';
+import { getThreads, getUnreadCount, checkConnection as gmailCheck } from '../services/gmail.js';
+import { getTextConversations, getMissedCalls, checkConnection as rcCheck } from '../services/ringcentral.js';
 
 const router = Router();
 
@@ -141,7 +143,7 @@ ${conversationHistory}${entityContext}
 Give Corey:
 1. A 1-sentence summary of what this is about (use the patient name if found)
 2. What he should do next (be specific)
-3. Urgency level: 🔴 Do Now, 🟡 Today, 🟢 Can Wait
+3. Urgency level: Do Now, Today, or Can Wait
 
 Keep it to 2-3 sentences. Be warm but direct.`;
 
@@ -153,19 +155,13 @@ Keep it to 2-3 sentences. Be warm but direct.`;
   }
 });
 
-export default router;
-
 // Elena's live briefing — fetches ALL unread Gmail (30 days) + RC texts (3 days) before generating
-import { getThreads, getUnreadCount, checkConnection as gmailCheck } from '../services/gmail.js';
-import { getTextConversations, getMissedCalls, checkConnection as rcCheck } from '../services/ringcentral.js';
-
 router.post('/briefing', async (req, res) => {
   try {
     // Fetch live data from Gmail and RingCentral in parallel
     const results = await Promise.allSettled([
       gmailCheck().then(async (status) => {
         if (!status.connected) return { connected: false };
-        // Pull ALL unread emails from past 30 days — unread = unprocessed for Corey
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const dateStr = thirtyDaysAgo.toISOString().split('T')[0].replace(/-/g, '/');
@@ -178,14 +174,12 @@ router.post('/briefing', async (req, res) => {
       }),
       rcCheck().then(async (status) => {
         if (!status.connected) return { connected: false };
-        // Pull ALL text conversations from past 3 days
         const [texts, missed] = await Promise.all([
           getTextConversations(250, 3),
           getMissedCalls(20)
         ]);
         return { connected: true, texts, missed };
       }),
-      // Also pull pending team questions
       (async () => {
         const db = getDb();
         const questions = db.prepare("SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC").all();
@@ -198,10 +192,9 @@ router.post('/briefing', async (req, res) => {
     const questions = results[2].status === 'fulfilled' ? results[2].value : [];
 
     // Build a live data summary for Elena
-    let liveContext = '\n\n## LIVE DATA (just fetched — this is current right now)\n';
-    liveContext += 'IMPORTANT: "unread" means "unprocessed" — Corey uses read/unread status to track what he\'s handled. Unread items are his to-do list.\n';
+    let liveContext = '\n\n## LIVE DATA (just fetched)\n';
+    liveContext += 'IMPORTANT: "unread" means "unprocessed" — Corey uses read/unread status to track what he\'s handled.\n';
 
-    // Gmail — ALL unread from past 30 days
     if (gmail.connected) {
       const unread = gmail.unreadThreads || [];
       liveContext += `\n### Email: ${gmail.unreadCount || unread.length} unprocessed emails (past 30 days)\n`;
@@ -211,22 +204,19 @@ router.post('/briefing', async (req, res) => {
           liveContext += `- From: ${t.from} | Subject: "${t.subject}" | Preview: ${t.snippet?.substring(0, 100)} | Date: ${t.date}\n`;
         }
       } else {
-        liveContext += 'Inbox zero on unprocessed — everything\'s been handled.\n';
+        liveContext += 'Inbox zero on unprocessed.\n';
       }
-      // Also show most recent for general awareness
       if (gmail.allRecent && gmail.allRecent.length > 0) {
         liveContext += '\nMost recent threads (for context):\n';
         for (const t of gmail.allRecent.slice(0, 10)) {
-          liveContext += `- ${t.isUnread ? '⬤ UNPROCESSED ' : ''}${t.from}: "${t.subject}" (${t.date})\n`;
+          liveContext += `- ${t.isUnread ? 'UNPROCESSED ' : ''}${t.from}: "${t.subject}" (${t.date})\n`;
         }
       }
     } else {
       liveContext += '\n### Email: Not connected (Gmail OAuth needed)\n';
     }
 
-    // RingCentral — ALL texts from past 3 days, unread first
     if (rc.connected && rc.texts) {
-      // Sort: unread conversations first, then by recency
       const sorted = [...rc.texts].sort((a, b) => {
         if (a.unread > 0 && b.unread === 0) return -1;
         if (a.unread === 0 && b.unread > 0) return 1;
@@ -235,21 +225,18 @@ router.post('/briefing', async (req, res) => {
 
       const totalUnread = sorted.reduce((sum, c) => sum + (c.unread || 0), 0);
       const unreadConvos = sorted.filter(c => c.unread > 0);
-      liveContext += `\n### Texts (past 3 days): ${totalUnread} unread messages across ${unreadConvos.length} conversations — THESE NEED ATTENTION\n`;
+      liveContext += `\n### Texts (past 3 days): ${totalUnread} unread across ${unreadConvos.length} conversations\n`;
 
-      // Show ALL unread conversations with full detail
       if (unreadConvos.length > 0) {
-        liveContext += '\nUNREAD (needs Corey\'s attention):\n';
+        liveContext += '\nUNREAD (needs attention):\n';
         for (const c of unreadConvos) {
-          liveContext += `- 🔴 ${c.contact} (${c.unread} unread):\n`;
-          // Show last few messages for context
+          liveContext += `- ${c.contact} (${c.unread} unread):\n`;
           for (const msg of c.messages.slice(0, 3)) {
-            liveContext += `    ${msg.direction === 'Inbound' ? '← ' : '→ '}"${msg.text?.substring(0, 100) || ''}" (${msg.time})\n`;
+            liveContext += `    ${msg.direction === 'Inbound' ? '<- ' : '-> '}"${msg.text?.substring(0, 100) || ''}" (${msg.time})\n`;
           }
         }
       }
 
-      // Then show read conversations for awareness
       const readConvos = sorted.filter(c => c.unread === 0);
       if (readConvos.length > 0) {
         liveContext += `\nAlready handled (${readConvos.length} conversations):\n`;
@@ -259,7 +246,6 @@ router.post('/briefing', async (req, res) => {
         }
       }
 
-      // Missed calls
       if (rc.missed && rc.missed.length > 0) {
         liveContext += `\n### Missed calls: ${rc.missed.length}\n`;
         for (const call of rc.missed) {
@@ -270,7 +256,6 @@ router.post('/briefing', async (req, res) => {
       liveContext += '\n### Texts/Calls: Not connected\n';
     }
 
-    // Team questions — ALL pending
     if (questions.length > 0) {
       liveContext += `\n### Team Questions: ${questions.length} pending\n`;
       for (const q of questions) {
@@ -278,13 +263,12 @@ router.post('/briefing', async (req, res) => {
       }
     }
 
-    // Now call Elena with the live data injected
     const { chat: elenaChat } = await import('../services/claude.js');
-    const briefingPrompt = `You're briefing Corey right now as he opens his portal. You have LIVE data below — use it. Be warm, calm, and direct. Start with "Hey Corey —" and then:
-1. What's most PRESSING — unread emails and unread texts ARE his to-do list. Lead with those. Be specific — name names, subjects, numbers.
-2. A calm overview: total unprocessed emails, unread texts needing attention, pending team questions, missed calls.
-3. End with one clear next step he should take.
-Keep it to 4-6 sentences max. No bullet points. Write like you're texting a friend who's overwhelmed. Make him feel like things are manageable.
+    const briefingPrompt = `You're briefing Corey right now as he opens his portal. You have LIVE data below. Be warm, calm, and direct. Start with "Hey Corey -" and then:
+1. What's most PRESSING - unread emails and texts ARE his to-do list. Be specific with names and subjects.
+2. A calm overview: total unprocessed emails, unread texts, pending team questions, missed calls.
+3. End with one clear next step.
+Keep it to 4-6 sentences max. No bullet points. Write like you're texting a friend who's overwhelmed.
 
 ${liveContext}`;
 
@@ -292,120 +276,8 @@ ${liveContext}`;
     res.json({ briefing: response, sources: { gmail: gmail.connected, ringcentral: rc.connected, questions: questions.length } });
   } catch (err) {
     console.error('Briefing error:', err);
-    res.status(500).json({ error: 'Briefing failed', fallback: "Hey Corey — I\'m having trouble pulling your latest data, but your portal tiles below are loaded. Take a look and I\'ll catch up in a sec." });
+    res.status(500).json({ error: 'Briefing failed', fallback: "Hey Corey - having trouble pulling your latest data, but your portal tiles below are loaded. Take a look and I'll catch up in a sec." });
   }
 });
 
-// Elena quick-context for a single focus item — with REAL conversation history + patient name resolution
-router.post('/focus-context', async (req, res) => {
-  try {
-    const { item } = req.body;
-    if (!item) return res.status(400).json({ error: 'item required' });
-
-    let conversationContext = '';
-    let patientInfo = '';
-
-    // Pull real conversation history based on channel
-    if (item.channel === 'rc' && item.from) {
-      try {
-        const { getConversationMessages } = await import('../services/ringcentral.js');
-        const messages = await getConversationMessages(item.from, 20);
-        if (messages.length > 0) {
-          conversationContext = '\n\nFull SMS conversation with ' + item.from + ' (most recent first):\n';
-          for (const msg of messages.slice(0, 15)) {
-            const dir = msg.direction === 'Inbound' ? 'THEM \u2192' : '\u2190 US';
-            conversationContext += dir + ' "' + (msg.text || '').substring(0, 300) + '" (' + (msg.time || '') + ')\n';
-          }
-
-          // Extract patient name from outbound messages (our texts always start with "Hey [Name]")
-          for (const msg of messages) {
-            if (msg.direction === 'Outbound' && msg.text) {
-              const nameMatch = msg.text.match(/^Hey\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
-              if (nameMatch) {
-                patientInfo = '\nPatient identified from our outbound messages: ' + nameMatch[1];
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error('RC context fetch error:', e.message);
-      }
-    }
-
-    if (item.channel === 'email' && item.threadId) {
-      try {
-        const { getThread } = await import('../services/gmail.js');
-        const thread = await getThread(item.threadId);
-        if (thread?.messages) {
-          conversationContext = '\n\nFull email thread:\n';
-          for (const msg of thread.messages.slice(0, 5)) {
-            conversationContext += '- ' + (msg.from || '') + ': "' + (msg.snippet || msg.body || '').substring(0, 300) + '"\n';
-          }
-        }
-      } catch (e) {
-        console.error('Gmail context fetch error:', e.message);
-      }
-    }
-
-    if (item.channel === 'slack') {
-      // For Slack, the message text itself is usually enough, but add channel context
-      conversationContext = '\n\nSlack message context: This came from a Slack channel. The full message is in the Content field above.';
-    }
-
-    // Also check entities DB for any name matches
-    if (!patientInfo) {
-      try {
-        const { searchEntities } = await import('../services/context.js');
-        // Try phone number lookup
-        if (item.from && /^\\+?\\d/.test(item.from)) {
-          const entities = searchEntities(item.from);
-          if (entities.length > 0) {
-            patientInfo = '\nKnown entity: ' + entities.map(e => e.name + ' (' + e.type + ')').join(', ');
-          }
-        }
-        // Try name extraction from the item text itself
-        if (!patientInfo && item.text) {
-          const nameInText = item.text.match(/(?:Hey|Dear|Hi)\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)*)/);
-          if (nameInText) {
-            const found = searchEntities(nameInText[1]);
-            if (found.length > 0) {
-              patientInfo = '\nKnown entity: ' + found.map(e => e.name + ' (' + e.type + ')').join(', ');
-            }
-          }
-        }
-      } catch (e) {}
-    }
-
-    const { chat: elenaChat } = await import('../services/claude.js');
-    const prompt = \`You're Elena, Corey's ADHD-friendly assistant. Corey is looking at one item in his focus queue.
-
-CRITICAL RULES:
-- You have the FULL conversation history below. READ IT CAREFULLY to understand context.
-- The patient's name is almost always in our OUTBOUND messages (we text "Hey [Name], ..."). Find it.
-- Do NOT guess or fabricate context. Only state what you can see in the data.
-- If a patient replied "Yes" or "Ok", check our outbound messages to see WHAT they're confirming.
-
-Give Corey:
-1. The patient/person's NAME (extracted from conversation) and what they're responding to
-2. A specific next action ("Process their reorder", "Call them back about...", etc.)
-
-Be warm, concise — 2-3 sentences max. No bullet points.
-
-The current item:
-- Channel: \${item.channel}
-- From: \${item.from || 'Unknown'}
-- Subject: \${item.subject || ''}
-- Content: \${item.text || ''}
-- Time: \${item.time || 'Unknown'}
-- Urgent: \${item.urgent ? 'Yes' : 'No'}
-\${patientInfo}
-\${conversationContext || '\n(No conversation history available — state that you have limited context)'}\`;
-
-    const response = await elenaChat(prompt, 'focus-context');
-    res.json({ context: response });
-  } catch (err) {
-    console.error('Focus context error:', err);
-    res.status(500).json({ error: 'Context unavailable' });
-  }
-});
+export default router;
