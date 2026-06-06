@@ -80,3 +80,17 @@ router.post('/questions/:id/answer', (req, res) => {
 });
 
 export default router;
+
+// Archive a question
+router.post('/questions/:id/archive', (req, res) => {
+  const db = getDb();
+  db.prepare("UPDATE questions SET status = 'archived' WHERE id = ?").run(req.params.id);
+  res.json({ status: 'archived' });
+});
+
+// Restore from archive
+router.post('/questions/:id/restore', (req, res) => {
+  const db = getDb();
+  db.prepare("UPDATE questions SET status = 'pending' WHERE id = ?").run(req.params.id);
+  res.json({ status: 'pending' });
+});

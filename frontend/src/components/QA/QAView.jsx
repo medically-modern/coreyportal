@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, Loader, X, User, Tag, ArrowUpDown } from 'lucide-react';
+import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw } from 'lucide-react';
 import { api } from '../../services/api';
 
 const URGENCY_CONFIG = {
@@ -45,15 +45,23 @@ function QuestionCard({ q, onClick, isDeepFocused }) {
         {q.headline || q.question?.split('\n')[0]?.slice(0, 60) || 'No headline'}
       </h3>
 
-      <div className="flex items-center gap-3 mt-3 text-xs text-surface-200/40">
-        <span className="flex items-center gap-1"><User size={11} /> {q.from_name || 'Team'}</span>
-        <span className="flex items-center gap-1"><Tag size={11} /> {q.tag || 'General'}</span>
+      <div className="flex items-center justify-between mt-3 text-xs text-surface-200/40">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1"><User size={11} /> {q.from_name || 'Team'}</span>
+          <span className="flex items-center gap-1"><Tag size={11} /> {q.tag || 'General'}</span>
+        </div>
+        {q.status === 'archived' && onRestore && (
+          <button onClick={(e) => { e.stopPropagation(); onRestore(q.id); }}
+            className="flex items-center gap-1 text-brand-400 hover:text-brand-300 transition">
+            <RotateCcw size={11} /> Restore
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function FocusModal({ question, onClose }) {
+function FocusModal({ question, onClose, onArchive }) {
   const u = getUrgency(question);
 
 
@@ -127,6 +135,11 @@ function FocusModal({ question, onClose }) {
           )}
 
 
+          {/* Archive */}
+          <button onClick={() => onArchive(question.id)}
+            className="w-full flex items-center justify-center gap-2 text-sm text-surface-200/40 hover:text-red-400 transition mt-2 py-2">
+            <Archive size={14} /> Move to Archive
+          </button>
         </div>
       </div>
     </div>
@@ -186,7 +199,7 @@ export default function QAView() {
 
       <div className="flex items-center justify-between gap-4">
         <div className="flex gap-2">
-          {['pending', 'answered', 'all'].map(f => (
+          {['pending', 'answered', 'archived', 'all'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`text-xs px-3 py-1.5 rounded-full transition capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60 hover:text-white'}`}>
               {f}
@@ -225,7 +238,11 @@ export default function QAView() {
         <FocusModal
           question={focused}
           onClose={() => setFocused(null)}
-          
+          onArchive={async (id) => {
+            await api.archiveQuestion(id);
+            setFocused(null);
+            loadQuestions();
+          }}
         />
       )}
     </div>
