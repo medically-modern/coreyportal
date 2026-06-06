@@ -51,6 +51,7 @@ export const api = {
 
   // Assistant (Elena)
   chat: (message) => request('/assistant/chat', { method: 'POST', body: JSON.stringify({ message }) }),
+  briefing: () => request('/assistant/briefing', { method: 'POST', body: JSON.stringify({}) }),
   chatHistory: () => request('/assistant/history'),
   followups: () => request('/assistant/followups'),
   decisions: () => request('/assistant/decisions'),

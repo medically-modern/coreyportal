@@ -202,15 +202,11 @@ export default function Dashboard({ onNavigate }) {
 
     setBriefingLoading(true);
     try {
-      const res = await api.chat(
-        `You're briefing Corey right now as he opens his portal. Be warm, calm, and direct. Start with "Hey Corey —" and then:
-        1. First, what's most PRESSING that needs his attention right now (if anything critical). Use plain language.
-        2. Then, a calm overview of the general state of things — what came in, what's been handled, what's waiting.
-        3. End with one clear next step he should take.
-        Keep it to 4-6 sentences max. No bullet points. Write like you're texting a friend who's overwhelmed. Make him feel like things are manageable.`
-      );
-      setBriefing(res.response);
-      window.__elenaBriefingCache = { text: res.response, time: Date.now() };
+      // Use dedicated briefing endpoint — live-fetches Gmail + RingCentral server-side
+      const res = await api.briefing();
+      const text = res.briefing || res.response;
+      setBriefing(text);
+      window.__elenaBriefingCache = { text, time: Date.now() };
     } catch (e) {
       const fallback = "Hey Corey — I'm having a moment connecting, but your portal is loaded with the latest from all your channels. Take a look at the tiles below to see what's waiting.";
       setBriefing(fallback);
