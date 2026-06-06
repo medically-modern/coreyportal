@@ -47,39 +47,81 @@ export async function searchMondayPatient(query) {
   try {
     // Board IDs from Medically Modern pipeline
     const boardIds = [
-      18407459988,  // P.S.O.
-      18392794310,  // M.E.
-      18406352652,  // Insurance
-      18406060017,  // Welcome call / final profile review
-      18410601299,  // Subscription board
-      18410804557,  // Additional board
+      18407459988,  // Subscription Board
+      18392794310,  // DTC Intake Board
+      18406352652,  // Profile Send Off Board
+      18406060017,  // Medical Evaluation
+      18410601299,  // Insurance
+      18410804557,  // Welcome Call
     ];
 
-    // Search across all boards for matching phone number or name
-    const response = await fetch(MONDAY_API, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': process.env.MONDAY_API_TOKEN,
-      },
-      body: JSON.stringify({
-        query: `{
-          boards(ids: [${boardIds.join(',')}]) {
-            id name
-            items_page(limit: 500) {
-              items {
-                id name
-                group { title }
-                column_values { id title text type }
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': process.env.MONDAY_API_TOKEN,
+    };
+
+    // Fetch all items from all boards with pagination
+    const boards = [];
+    for (const boardId of boardIds) {
+      let cursor = null;
+      let allItems = [];
+
+      // First page
+      const firstRes = await fetch(MONDAY_API, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          query: `{
+            boards(ids: [${boardId}]) {
+              id name
+              items_page(limit: 500) {
+                cursor
+                items {
+                  id name
+                  group { title }
+                  column_values { id title text type }
+                }
               }
             }
-          }
-        }`,
-      }),
-    });
+          }`,
+        }),
+      });
+      const firstData = await firstRes.json();
+      const board = firstData.data?.boards?.[0];
+      if (!board) continue;
 
-    const data = await response.json();
-    const boards = data.data?.boards || [];
+      const page1 = board.items_page || {};
+      allItems = page1.items || [];
+      cursor = page1.cursor;
+
+      // Paginate if there are more items
+      while (cursor) {
+        const nextRes = await fetch(MONDAY_API, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            query: `{
+              next_items_page(limit: 500, cursor: "${cursor}") {
+                cursor
+                items {
+                  id name
+                  group { title }
+                  column_values { id title text type }
+                }
+              }
+            }`,
+          }),
+        });
+        const nextData = await nextRes.json();
+        const nextPage = nextData.data?.next_items_page || {};
+        allItems = allItems.concat(nextPage.items || []);
+        cursor = nextPage.cursor;
+        // Safety cap
+        if (allItems.length > 2000) break;
+      }
+
+      boards.push({ id: board.id, name: board.name, items: allItems });
+    }
 
     // Normalize the query for matching
     const queryDigits = query.replace(/\D/g, '');
@@ -87,7 +129,7 @@ export async function searchMondayPatient(query) {
     const matches = [];
 
     for (const board of boards) {
-      const items = board.items_page?.items || [];
+      const items = board.items || [];
       for (const item of items) {
         let matched = false;
 
