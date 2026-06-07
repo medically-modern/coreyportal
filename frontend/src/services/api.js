@@ -25,6 +25,7 @@ export const api = {
   gmailTriage: () => request('/gmail/triage'),
   gmailSearch: (q) => request(`/gmail/search?q=${encodeURIComponent(q)}`),
   gmailMarkRead: (threadId) => request(`/gmail/thread/${threadId}/read`, { method: 'POST' }),
+  gmailReply: (threadId, to, subject, body) => request('/gmail/reply', { method: 'POST', body: JSON.stringify({ threadId, to, subject, body }) }),
 
   // Slack
   slackStatus: () => request('/slack/status'),
@@ -40,6 +41,8 @@ export const api = {
   rcStatus: () => request('/ringcentral/status'),
   rcMessages: () => request('/ringcentral/messages'),
   rcSummarize: (phone) => request(`/ringcentral/summarize/${encodeURIComponent(phone)}`),
+  rcFullConversation: (phone) => request(`/ringcentral/conversation/${encodeURIComponent(phone)}`),
+  rcSendSMS: (to, text) => request('/ringcentral/send-sms', { method: 'POST', body: JSON.stringify({ to, text }) }),
 
   // Monday
   mondayBoards: () => request('/monday/boards'),
@@ -66,6 +69,7 @@ export const api = {
 
   // Focus context (Elena per-item analysis)
   focusContext: (item) => request('/assistant/focus-context', { method: 'POST', body: JSON.stringify({ item }) }),
+  draftReply: (data) => request('/assistant/draft-reply', { method: 'POST', body: JSON.stringify(data) }),
 
   // Parking Lot notes
   notesGet: () => request('/notes'),

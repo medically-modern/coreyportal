@@ -2,6 +2,8 @@ import { Router } from 'express';
 import {
   getTextConversations,
   getConversationMessages,
+  getFullConversation,
+  sendSMS,
   getVoicemails,
   getCallLog,
   getMissedCalls,
@@ -60,6 +62,30 @@ router.get('/summarize/:phoneNumber', async (req, res) => {
   } catch (err) {
     console.error('RC summarize error:', err.message);
     res.status(500).json({ error: 'Summarization failed' });
+  }
+});
+
+// Full conversation history for a phone number
+router.get('/conversation/:phoneNumber', async (req, res) => {
+  try {
+    const messages = await getFullConversation(req.params.phoneNumber, parseInt(req.query.days) || 90);
+    res.json({ messages, phone: req.params.phoneNumber });
+  } catch (err) {
+    console.error('RC conversation error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch conversation' });
+  }
+});
+
+// Send SMS
+router.post('/send-sms', async (req, res) => {
+  try {
+    const { to, text } = req.body;
+    if (!to || !text) return res.status(400).json({ error: 'to and text are required' });
+    const result = await sendSMS(to, text);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('RC send SMS error:', err);
+    res.status(500).json({ error: 'Failed to send SMS', detail: err.message });
   }
 });
 

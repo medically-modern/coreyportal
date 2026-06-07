@@ -279,6 +279,48 @@ export async function getMissedCalls(perPage = 10) {
   }));
 }
 
+// ---- SEND SMS ----
+
+export async function sendSMS(toNumber, text) {
+  const p = await getPlatform();
+
+  // Get the user's phone number from their extension
+  const extRes = await p.get('/restapi/v1.0/account/~/extension/~');
+  const ext = await extRes.json();
+  const fromNumber = ext.extensionNumber
+    ? null // will use default
+    : null;
+
+  // Get the first SMS-capable phone number
+  const phonesRes = await p.get('/restapi/v1.0/account/~/extension/~/phone-number');
+  const phones = await phonesRes.json();
+  const smsPhone = (phones.records || []).find(
+    ph => ph.features?.includes('SmsSender')
+  );
+
+  if (!smsPhone) throw new Error('No SMS-capable phone number found on this extension');
+
+  const res = await p.post('/restapi/v1.0/account/~/extension/~/sms', {
+    from: { phoneNumber: smsPhone.phoneNumber },
+    to: [{ phoneNumber: toNumber }],
+    text,
+  });
+
+  const data = await res.json();
+
+  // Invalidate caches so new message shows up
+  allMessagesCache = null;
+  const digits = toNumber.replace(/\D/g, '').slice(-10);
+  convoCache.delete(digits);
+
+  return {
+    id: data.id,
+    to: toNumber,
+    text: data.subject,
+    time: data.creationTime,
+  };
+}
+
 // ---- HEALTH CHECK ----
 
 export async function checkConnection() {

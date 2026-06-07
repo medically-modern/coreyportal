@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { summarize, triageItems } from '../services/claude.js';
-import { getAuthUrl, handleCallback, checkConnection, getThreads, getThread, markAsRead, getUnreadCount, searchEmails } from '../services/gmail.js';
+import { getAuthUrl, handleCallback, checkConnection, getThreads, getThread, markAsRead, getUnreadCount, searchEmails, sendReply } from '../services/gmail.js';
 
 const router = Router();
 
@@ -117,6 +117,35 @@ router.get('/search', async (req, res) => {
     res.json({ threads });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Send a reply to a thread
+router.post('/reply', async (req, res) => {
+  try {
+    const { threadId, to, subject, body } = req.body;
+    if (!threadId || !to || !body) {
+      return res.status(400).json({ error: 'threadId, to, and body are required' });
+    }
+
+    // Get the last message in thread for In-Reply-To header
+    let inReplyTo = null;
+    let references = null;
+    try {
+      const thread = await getThread(threadId);
+      const lastMsg = thread.messages[thread.messages.length - 1];
+      if (lastMsg?.id) {
+        // Gmail message IDs can be used as references
+        inReplyTo = `<${lastMsg.id}@mail.gmail.com>`;
+        references = inReplyTo;
+      }
+    } catch {}
+
+    const result = await sendReply({ threadId, to, subject, body, inReplyTo, references });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Gmail reply error:', err);
+    res.status(500).json({ error: 'Failed to send reply', detail: err.message });
   }
 });
 

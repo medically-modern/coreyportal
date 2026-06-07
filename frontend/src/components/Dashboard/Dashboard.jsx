@@ -165,11 +165,12 @@ export default function Dashboard({ onNavigate }) {
             count: unread.length,
             items: threadList.filter(t => t.isUnread || t.unread).slice(0, 5).map(t => ({
               text: `${t.from?.split('<')[0]?.trim() || 'Unknown'}: ${t.subject}`,
-              from: t.from?.split('<')[0]?.trim() || 'Unknown',
+              from: t.from || 'Unknown',
               subject: t.subject || '(no subject)',
               snippet: t.snippet || t.subject || '',
               time: timeAgo(t.date),
               urgent: t.unread,
+              threadId: t.id,
             })),
           });
         } else {

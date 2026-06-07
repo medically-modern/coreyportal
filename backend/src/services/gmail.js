@@ -167,3 +167,34 @@ export async function getUnreadCount() {
 export async function searchEmails(query, maxResults = 10) {
   return getThreads({ maxResults, q: query });
 }
+
+// Send a reply to an existing thread
+export async function sendReply({ threadId, to, subject, body, inReplyTo, references }) {
+  const gmail = getGmail();
+
+  // Get profile for "from" address
+  const profile = await gmail.users.getProfile({ userId: 'me' });
+  const from = profile.data.emailAddress;
+
+  // Build RFC 2822 email
+  const replySubject = subject?.startsWith('Re:') ? subject : `Re: ${subject || ''}`;
+  const headers = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${replySubject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=UTF-8`,
+  ];
+  if (inReplyTo) headers.push(`In-Reply-To: ${inReplyTo}`);
+  if (references) headers.push(`References: ${references}`);
+
+  const raw = headers.join('\r\n') + '\r\n\r\n' + body;
+  const encoded = Buffer.from(raw).toString('base64url');
+
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encoded, threadId },
+  });
+
+  return { messageId: res.data.id, threadId: res.data.threadId };
+}

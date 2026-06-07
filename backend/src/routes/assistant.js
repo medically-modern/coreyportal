@@ -300,6 +300,31 @@ Return ONLY the JSON object. No markdown fences, no explanation.`;
   }
 });
 
+// Elena drafts a reply for Corey
+router.post('/draft-reply', async (req, res) => {
+  try {
+    const { channel, originalText, from, subject, conversationHistory } = req.body;
+    if (!originalText) return res.status(400).json({ error: 'originalText required' });
+
+    const { draftResponse } = await import('../services/claude.js');
+
+    // Build context for the draft
+    let fullContext = '';
+    if (conversationHistory) {
+      fullContext += `Recent conversation:\n${conversationHistory}\n\n`;
+    }
+    fullContext += `Latest message from ${from || 'contact'}:\n`;
+    if (subject) fullContext += `Subject: ${subject}\n`;
+    fullContext += originalText;
+
+    const draft = await draftResponse(fullContext, channel || 'email');
+    res.json({ draft });
+  } catch (err) {
+    console.error('Draft reply error:', err);
+    res.status(500).json({ error: 'Failed to draft reply' });
+  }
+});
+
 // Elena's live briefing — fetches ALL unread Gmail (30 days) + RC texts (3 days) before generating
 router.post('/briefing', async (req, res) => {
   try {

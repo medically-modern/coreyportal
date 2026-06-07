@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Bot, Loader, X } from 'lucide-react';
+import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Bot, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp } from 'lucide-react';
 import { api } from '../../services/api';
 
 function getUrgencyScore(item) {
@@ -51,15 +51,241 @@ function SnoozePicker({ onSnooze, onClose }) {
   );
 }
 
+// ── Conversation Side Panel (texts) ──
+function ConversationPanel({ phoneNumber, onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (!phoneNumber) return;
+    setLoading(true);
+    setError(null);
+    api.rcFullConversation(phoneNumber)
+      .then(res => {
+        setMessages(res.messages || []);
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [phoneNumber]);
+
+  useEffect(() => {
+    if (messages.length > 0 && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+
+  function formatTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now - d) / 86400000);
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (diffDays === 0) return `Today ${time}`;
+    if (diffDays === 1) return `Yesterday ${time}`;
+    if (diffDays < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
+    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+  }
+
+  return (
+    <div className="fixed right-0 top-0 h-full w-96 bg-surface-900 border-l border-surface-200/10 z-50 flex flex-col shadow-2xl shadow-black/50">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-surface-200/10">
+        <div className="flex items-center gap-2">
+          <MessageCircle size={16} className="text-green-400" />
+          <span className="text-sm font-semibold text-white">Conversation</span>
+          <span className="text-xs text-surface-200/40">{phoneNumber}</span>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-200/10 text-surface-200/50 hover:text-white transition">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {loading ? (
+          <div className="flex items-center justify-center h-32 text-surface-200/40">
+            <Loader size={16} className="animate-spin mr-2" /> Loading history...
+          </div>
+        ) : error ? (
+          <div className="text-center py-8 text-bad/70 text-sm">{error}</div>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-8 text-surface-200/30 text-sm">No messages found</div>
+        ) : (
+          <>
+            <p className="text-center text-[10px] text-surface-200/20 py-2">{messages.length} messages</p>
+            {messages.map((msg, i) => {
+              const isUs = msg.direction === 'Outbound';
+              return (
+                <div key={i} className={`flex ${isUs ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] rounded-2xl px-3 py-2 ${
+                    isUs
+                      ? 'bg-brand-600/30 text-white rounded-br-md'
+                      : 'bg-surface-200/10 text-surface-200/80 rounded-bl-md'
+                  }`}>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text || '(no text)'}</p>
+                    <p className={`text-[10px] mt-1 ${isUs ? 'text-brand-400/50' : 'text-surface-200/25'}`}>
+                      {formatTime(msg.time)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={bottomRef} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Reply Compose Area ──
+function ReplyCompose({ current, elenaStructured, onSent }) {
+  const [replyText, setReplyText] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null); // 'sent' | 'error'
+  const textareaRef = useRef(null);
+
+  const isEmail = current.channel === 'email';
+  const isText = current.channel === 'rc';
+  const showReply = isEmail || isText;
+
+  if (!showReply) return null;
+
+  // Auto-resize textarea
+  function handleTextChange(e) {
+    setReplyText(e.target.value);
+    setSendResult(null);
+    const ta = textareaRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+    }
+  }
+
+  async function handleDraft() {
+    setDrafting(true);
+    try {
+      const res = await api.draftReply({
+        channel: isEmail ? 'email' : 'text',
+        originalText: current.snippet || current.text,
+        from: current.from,
+        subject: current.subject,
+      });
+      setReplyText(res.draft || '');
+      // Focus and auto-resize
+      setTimeout(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.style.height = 'auto';
+          ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+          ta.focus();
+        }
+      }, 50);
+    } catch {
+      setReplyText('(Elena couldn\'t draft a reply — write your own)');
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  async function handleSend() {
+    if (!replyText.trim()) return;
+    setSending(true);
+    setSendResult(null);
+    try {
+      if (isEmail) {
+        // Extract email address from "Name <email>" format
+        const emailMatch = current.from?.match(/<([^>]+)>/) || [null, current.from];
+        const toEmail = emailMatch[1] || current.from;
+        await api.gmailReply(current.threadId, toEmail, current.subject, replyText.trim());
+      } else {
+        // SMS — from is the phone number
+        await api.rcSendSMS(current.from, replyText.trim());
+      }
+      setSendResult('sent');
+      setReplyText('');
+      setTimeout(() => {
+        setSendResult(null);
+        onSent?.();
+      }, 1500);
+    } catch (err) {
+      console.error('Send error:', err);
+      setSendResult('error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl bg-surface-900/60 border border-surface-200/10 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-surface-200/30 uppercase tracking-wider font-semibold">
+          {isEmail ? 'Reply to Email' : 'Reply via Text'}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDraft}
+            disabled={drafting}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-600/20 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition disabled:opacity-50"
+          >
+            {drafting ? <Loader size={10} className="animate-spin" /> : <Bot size={10} />}
+            {drafting ? 'Drafting...' : 'Elena Draft'}
+          </button>
+          {isText && replyText && (
+            <button
+              onClick={() => { setReplyText(''); setSendResult(null); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface-200/10 text-surface-200/50 text-xs hover:bg-surface-200/15 transition"
+            >
+              <Eraser size={10} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      <textarea
+        ref={textareaRef}
+        value={replyText}
+        onChange={handleTextChange}
+        placeholder={isEmail ? 'Write your reply...' : 'Type a message...'}
+        rows={2}
+        className="w-full bg-surface-800/50 border border-surface-200/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-surface-200/25 resize-none focus:outline-none focus:border-brand-600/40 transition"
+      />
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs">
+          {sendResult === 'sent' && (
+            <span className="text-good flex items-center gap-1"><CheckCircle2 size={12} /> Sent!</span>
+          )}
+          {sendResult === 'error' && (
+            <span className="text-bad">Failed to send. Try again.</span>
+          )}
+        </div>
+        <button
+          onClick={handleSend}
+          disabled={!replyText.trim() || sending}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
+          {sending ? 'Sending...' : 'Send'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function DoThisNext({ emailData, slackData, rcData, questions, onDismiss, onNavigate }) {
   const [dismissed, setDismissed] = useState(new Set());
-  const [snoozed, setSnoozed] = useState(new Map()); // id -> unsnooze timeout
+  const [snoozed, setSnoozed] = useState(new Map());
   const [completed, setCompleted] = useState(new Set());
   const [showDone, setShowDone] = useState(false);
   const [showSnoozePicker, setShowSnoozePicker] = useState(false);
   const [elenaContext, setElenaContext] = useState(null);
   const [elenaStructured, setElenaStructured] = useState(null);
   const [elenaLoading, setElenaLoading] = useState(false);
+  const [showConversation, setShowConversation] = useState(false);
   const lastContextId = useRef(null);
 
   // Build unified, ranked queue with RICH data
@@ -73,6 +299,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         from: item.from || item.text?.split(':')[0] || 'Unknown',
         subject: item.subject || item.text?.split(': ').slice(1).join(': ') || '',
         snippet: item.snippet || item.text || '',
+        threadId: item.threadId || item.id || null,
       });
     });
     (slackData?.items || []).forEach((item, i) => {
@@ -122,6 +349,11 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   const totalHandled = completed.size + dismissed.size;
   const total = allItems.length;
 
+  // Close conversation panel when item changes
+  useEffect(() => {
+    setShowConversation(false);
+  }, [current?.id]);
+
   // Fetch Elena context when current item changes
   useEffect(() => {
     if (!current || current.id === lastContextId.current) return;
@@ -136,6 +368,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
       text: current.snippet,
       time: current.time,
       urgent: current.urgent,
+      threadId: current.threadId,
     }).then(res => {
       setElenaContext(res.context);
       setElenaStructured(res.structured || null);
@@ -163,6 +396,9 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   const meta = CHANNEL_META[current.channel];
   const Icon = meta.icon;
   const position = total - activeItems.length + 1;
+  const isText = current.channel === 'rc';
+  const isEmail = current.channel === 'email';
+  const canReply = isEmail || isText;
 
   function handleComplete() {
     setCompleted(prev => new Set(prev).add(current.id));
@@ -190,6 +426,14 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
 
   return (
     <div className="space-y-4">
+      {/* Conversation side panel for texts */}
+      {showConversation && isText && current.from && (
+        <ConversationPanel
+          phoneNumber={current.from}
+          onClose={() => setShowConversation(false)}
+        />
+      )}
+
       {/* Progress bar */}
       <div className="flex items-center gap-3">
         <div className="flex-1 h-2 bg-surface-200/10 rounded-full overflow-hidden">
@@ -243,7 +487,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         </div>
 
         {/* Elena's context + recommendation */}
-        <div className="rounded-xl bg-surface-900/40 border border-brand-600/20 p-4 mb-5">
+        <div className="rounded-xl bg-surface-900/40 border border-brand-600/20 p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             <Bot size={14} className="text-brand-400" />
             <span className="text-xs font-semibold text-brand-400">Elena's Take</span>
@@ -307,8 +551,47 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
           )}
         </div>
 
+        {/* Reply compose — for emails and texts */}
+        {canReply && (
+          <div className="mb-4">
+            <ReplyCompose
+              current={current}
+              elenaStructured={elenaStructured}
+              onSent={handleComplete}
+            />
+          </div>
+        )}
+
         {/* Actions with labels */}
-        <div className="flex items-stretch gap-3">
+        <div className="flex items-stretch gap-2">
+          {/* View Conversation (texts only) */}
+          {isText && current.from && (
+            <button
+              onClick={() => setShowConversation(prev => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
+                showConversation
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-surface-200/10 text-surface-200/60 hover:bg-green-500/15 hover:text-green-400'
+              }`}
+              title="View full conversation"
+            >
+              <MessageCircle size={15} />
+              <span className="hidden sm:inline text-xs">History</span>
+            </button>
+          )}
+
+          {/* Go to Email (emails only) */}
+          {isEmail && (
+            <button
+              onClick={() => onNavigate?.(`/gmail?thread=${current.threadId}`)}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-surface-200/10 text-surface-200/60 hover:bg-blue-500/15 hover:text-blue-400 transition text-sm"
+              title="Open in email view"
+            >
+              <ExternalLink size={15} />
+              <span className="hidden sm:inline text-xs">View Email</span>
+            </button>
+          )}
+
           <button
             onClick={() => onNavigate?.(channelPath)}
             className="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-medium px-4 py-3 rounded-xl transition flex items-center justify-center gap-2"
@@ -319,7 +602,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
           <div className="flex flex-col items-center gap-1">
             <button
               onClick={handleComplete}
-              className="px-4 py-2.5 bg-good/20 text-good rounded-xl hover:bg-good/30 transition"
+              className="px-3 py-2.5 bg-good/20 text-good rounded-xl hover:bg-good/30 transition"
               title="Mark as handled"
             >
               <CheckCircle2 size={18} />
@@ -336,7 +619,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
             )}
             <button
               onClick={() => setShowSnoozePicker(prev => !prev)}
-              className="px-4 py-2.5 bg-surface-200/10 text-surface-200/50 rounded-xl hover:bg-amber-500/20 hover:text-amber-400 transition"
+              className="px-3 py-2.5 bg-surface-200/10 text-surface-200/50 rounded-xl hover:bg-amber-500/20 hover:text-amber-400 transition"
               title="Snooze"
             >
               <AlarmClock size={18} />
@@ -347,7 +630,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
           <div className="flex flex-col items-center gap-1">
             <button
               onClick={handleDismiss}
-              className="px-4 py-2.5 bg-surface-200/10 text-surface-200/50 rounded-xl hover:bg-surface-200/15 hover:text-surface-200/70 transition"
+              className="px-3 py-2.5 bg-surface-200/10 text-surface-200/50 rounded-xl hover:bg-surface-200/15 hover:text-surface-200/70 transition"
               title="Skip this for now"
             >
               <SkipForward size={18} />
