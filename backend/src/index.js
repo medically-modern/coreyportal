@@ -20,6 +20,9 @@ import projectRoutes from './routes/projects.js';
 // RAG — shared vector store with standalone Elena
 import { initVectorStore, setupSchema } from './services/vectorStore.js';
 import { warmup as warmupEmbeddings } from './services/embeddings.js';
+// Rules engine — shared source of truth
+import { initRulesPool, setupRulesSchema } from './services/rules.js';
+import rulesRoutes from './routes/rules.js';
 
 config();
 
@@ -30,7 +33,6 @@ const PORT = process.env.PORT || 4000;
 app.use(helmet());
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     const allowed = /^https?:\/\/(medically-modern\.github\.io|localhost(:\d+)?)$/i;
     if (allowed.test(origin)) return callback(null, true);
@@ -69,22 +71,28 @@ app.use('/api/context', contextRoutes);
 app.use('/api/elena', ingestRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/rules', rulesRoutes);
 
 // Init DB and start
 initDb();
 
-// Init vector store (non-blocking — app works without it)
+// Init vector store + rules (non-blocking — app works without them)
 if (process.env.DATABASE_URL) {
   const connected = initVectorStore();
+  const rulesConnected = initRulesPool();
   if (connected) {
     setupSchema()
       .then(() => console.log('pgvector ready — shared knowledge base active'))
       .catch(err => console.error('pgvector setup failed:', err.message));
   }
-  // Pre-warm embedding model in background
+  if (rulesConnected) {
+    setupRulesSchema()
+      .then(() => console.log('Rules engine ready — shared rules active'))
+      .catch(err => console.error('Rules schema setup failed:', err.message));
+  }
   warmupEmbeddings().catch(() => {});
 } else {
-  console.log('No DATABASE_URL — RAG disabled, hardcoded knowledge only');
+  console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
 }
 
 app.listen(PORT, () => {

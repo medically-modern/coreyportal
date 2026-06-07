@@ -23,6 +23,20 @@ try {
   ragReady = () => false;
 }
 
+// Rules engine — shared source of truth, overrides all other context
+let rulesReady, buildRulesBlock, createRule;
+try {
+  const rules = await import('./rules.js');
+  rulesReady = rules.isRulesReady;
+  buildRulesBlock = rules.buildRulesBlock;
+  createRule = rules.createRule;
+} catch (err) {
+  console.warn('Rules module not available:', err.message);
+  rulesReady = () => false;
+  buildRulesBlock = async () => '';
+  createRule = async () => null;
+}
+
 const anthropic = new Anthropic();
 
 // RAG retrieval helper — shared with standalone Elena
@@ -73,6 +87,11 @@ export async function chat(userMessage, contextModule = null) {
   // Build system prompt with live context
   let systemPrompt = ELENA_SYSTEM_PROMPT + ADHD_COMMUNICATION_PROFILE + '\n\n' + KNOWLEDGE_BASE + '\n\n' + SLACK_KNOWLEDGE + contextBlock;
 
+  // RULES — injected FIRST, above all other retrieved context
+  // Rules are the source of truth and override everything else
+  const rulesBlock = await buildRulesBlock();
+  if (rulesBlock) systemPrompt += rulesBlock;
+
   // Add RAG context from shared vector store
   const ragContext = await getRAGContext(userMessage);
   if (ragContext) systemPrompt += ragContext;
@@ -118,6 +137,9 @@ export async function chat(userMessage, contextModule = null) {
   // Process for learning (async, non-blocking)
   processForLearning(userMessage, assistantMessage).catch(() => {});
 
+  // Detect if user is setting a rule (async, non-blocking)
+  detectAndCreateRule(userMessage).catch(() => {});
+
   return assistantMessage;
 }
 
@@ -126,6 +148,10 @@ export async function oneShot(prompt, systemOverride = null) {
   const learnedFacts = buildLearnedContext(prompt);
   const base = systemOverride || 'You are Elena, a warm and direct assistant for Corey, CEO of Medically Modern (a DME company). Be concise and specific.';
   let system = learnedFacts ? base + learnedFacts : base;
+
+  // Rules — always inject into one-shot calls too
+  const rulesBlock = await buildRulesBlock();
+  if (rulesBlock) system += rulesBlock;
 
   // Add RAG for one-shot calls too
   const ragContext = await getRAGContext(prompt);
@@ -252,4 +278,53 @@ function findPatientContext(message) {
 
   if (matches.length === 0) return null;
   return '\n\n## PATIENT HISTORY (from SMS records)\n' + matches.join('\n');
+}
+
+// Detect when user is setting a rule and auto-create it in the shared knowledge base
+async function detectAndCreateRule(userMessage) {
+  // Quick check — skip obvious non-rule messages
+  const msgLower = userMessage.toLowerCase();
+  const ruleSignals = [
+    'make a rule', 'add a rule', 'create a rule', 'new rule',
+    'remember that', 'from now on', 'going forward',
+    'we don\'t', 'we dont', 'we no longer', 'we stopped', 'we\'ve stopped',
+    'never ', 'always ', 'make sure you', 'make sure elena',
+    'update your rule', 'change the rule',
+    'we now ', 'we only ', 'we are now', 'we\'re now',
+    'stop accepting', 'start accepting', 'we accept', 'we take',
+    'we don\'t take', 'we dont take', 'we don\'t accept', 'we dont accept',
+  ];
+  if (!ruleSignals.some(s => msgLower.includes(s))) return;
+
+  try {
+    const detection = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 300,
+      system: `You detect business rules in user messages. A rule is a directive that should be remembered permanently and override any previous context. Examples:
+- "we don't take United" → rule: "Medically Modern does not accept United insurance."
+- "from now on, always call back patients within 2 hours" → rule: "All patient callbacks must happen within 2 hours."
+- "remember that we only ship on Tuesdays and Fridays" → rule: "Shipping only occurs on Tuesdays and Fridays."
+
+If the message contains a rule, return JSON: {"isRule": true, "rule": "clear statement of the rule", "category": "insurance|shipping|policy|products|patients|operations|general"}
+If NOT a rule (just a question or casual statement), return: {"isRule": false}
+JSON only, no explanation.`,
+      messages: [{ role: 'user', content: userMessage }]
+    });
+
+    let raw = detection.content[0].text.trim();
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    const result = JSON.parse(raw);
+
+    if (result.isRule && result.rule) {
+      const created = await createRule(result.rule, result.category || 'general', {
+        source_message: userMessage.substring(0, 200),
+        detected_at: new Date().toISOString(),
+      });
+      console.log(`Rule created from chat: [${result.category}] ${result.rule} (id: ${created?.id})`);
+    }
+  } catch (err) {
+    console.error('Rule detection error:', err.message);
+  }
 }
