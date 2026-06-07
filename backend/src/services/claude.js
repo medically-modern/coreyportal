@@ -9,7 +9,53 @@ const PATIENT_DIRECTORY = require('../config/patient-directory.json');
 import { buildContextForMessage, logDecision, addFollowup, ingestContent } from './context.js';
 import { buildLearnedContext, processForLearning } from './memory.js';
 
+// RAG imports — shared vector store with standalone Elena
+let ragEmbed, ragSearch, ragKeywordSearch, ragReady;
+try {
+  const embeddings = await import('./embeddings.js');
+  const vectorStore = await import('./vectorStore.js');
+  ragEmbed = embeddings.embed;
+  ragSearch = vectorStore.search;
+  ragKeywordSearch = vectorStore.keywordSearch;
+  ragReady = vectorStore.isReady;
+} catch (err) {
+  console.warn('RAG modules not available:', err.message);
+  ragReady = () => false;
+}
+
 const anthropic = new Anthropic();
+
+// RAG retrieval helper — shared with standalone Elena
+async function getRAGContext(userMessage) {
+  if (!ragReady || !ragReady()) return '';
+  try {
+    const queryEmbedding = await ragEmbed(userMessage);
+    const semanticResults = await ragSearch(queryEmbedding, 6);
+    const kwResults = await ragKeywordSearch(userMessage, 4);
+
+    const seen = new Set();
+    const allResults = [];
+    for (const r of [...semanticResults, ...kwResults]) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        allResults.push(r);
+      }
+    }
+
+    if (allResults.length === 0) return '';
+
+    const top = allResults.slice(0, 8);
+    let ragBlock = '\n\n## RETRIEVED CONTEXT (from shared knowledge base)\n';
+    ragBlock += 'The following was retrieved as relevant from Elena\'s knowledge base:\n\n';
+    for (const r of top) {
+      ragBlock += `### [${r.source}]\n${r.content}\n\n`;
+    }
+    return ragBlock;
+  } catch (err) {
+    console.error('RAG retrieval error (continuing without):', err.message);
+    return '';
+  }
+}
 
 // Chat with Elena — full context-aware conversation
 export async function chat(userMessage, contextModule = null) {
@@ -26,6 +72,10 @@ export async function chat(userMessage, contextModule = null) {
 
   // Build system prompt with live context
   let systemPrompt = ELENA_SYSTEM_PROMPT + ADHD_COMMUNICATION_PROFILE + '\n\n' + KNOWLEDGE_BASE + '\n\n' + SLACK_KNOWLEDGE + contextBlock;
+
+  // Add RAG context from shared vector store
+  const ragContext = await getRAGContext(userMessage);
+  if (ragContext) systemPrompt += ragContext;
 
   // Add Elena's learned memory
   const learnedMemory = buildLearnedContext(userMessage);
@@ -72,12 +122,15 @@ export async function chat(userMessage, contextModule = null) {
 }
 
 // One-shot Elena call — no conversation history, no DB save
-// Used for focus-context, briefings, and other stateless analysis
-// Automatically injects learned facts from Elena's memory
 export async function oneShot(prompt, systemOverride = null) {
   const learnedFacts = buildLearnedContext(prompt);
   const base = systemOverride || 'You are Elena, a warm and direct assistant for Corey, CEO of Medically Modern (a DME company). Be concise and specific.';
-  const system = learnedFacts ? base + learnedFacts : base;
+  let system = learnedFacts ? base + learnedFacts : base;
+
+  // Add RAG for one-shot calls too
+  const ragContext = await getRAGContext(prompt);
+  if (ragContext) system += ragContext;
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
@@ -99,9 +152,7 @@ export async function summarize(content, contentType = 'conversation') {
     messages: [{ role: 'user', content: `Summarize this:\n\n${content}` }]
   });
 
-  // Track entities in summarized content
   await ingestContent(content, contentType, '');
-
   return response.content[0].text;
 }
 
@@ -171,9 +222,7 @@ async function detectAndLogActions(responseText) {
     for (const f of result.followups || []) {
       addFollowup(f.description, f.due, f.entity);
     }
-  } catch (err) {
-    // Non-critical — don't fail the main flow
-  }
+  } catch (err) {}
 }
 
 // Search patient directory for mentions in user message
@@ -183,7 +232,6 @@ function findPatientContext(message) {
 
   for (const [name, info] of Object.entries(PATIENT_DIRECTORY)) {
     const nameLower = name.toLowerCase();
-    // Check first name, last name, or full name
     const parts = nameLower.split(/\s+/);
     const isMatch = parts.some(part => part.length > 2 && msgLower.includes(part)) || msgLower.includes(nameLower);
 

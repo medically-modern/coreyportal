@@ -17,6 +17,10 @@ import ingestRoutes from './routes/ingest.js';
 import notesRoutes from './routes/notes.js';
 import projectRoutes from './routes/projects.js';
 
+// RAG — shared vector store with standalone Elena
+import { initVectorStore, setupSchema } from './services/vectorStore.js';
+import { warmup as warmupEmbeddings } from './services/embeddings.js';
+
 config();
 
 const app = express();
@@ -42,6 +46,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    rag: !!process.env.DATABASE_URL,
     services: {
       gmail: !!process.env.GOOGLE_CLIENT_ID,
       slack: !!process.env.SLACK_BOT_TOKEN,
@@ -67,6 +72,21 @@ app.use('/api/projects', projectRoutes);
 
 // Init DB and start
 initDb();
+
+// Init vector store (non-blocking — app works without it)
+if (process.env.DATABASE_URL) {
+  const connected = initVectorStore();
+  if (connected) {
+    setupSchema()
+      .then(() => console.log('pgvector ready — shared knowledge base active'))
+      .catch(err => console.error('pgvector setup failed:', err.message));
+  }
+  // Pre-warm embedding model in background
+  warmupEmbeddings().catch(() => {});
+} else {
+  console.log('No DATABASE_URL — RAG disabled, hardcoded knowledge only');
+}
+
 app.listen(PORT, () => {
   console.log(`Corey Portal API running on :${PORT}`);
 });
