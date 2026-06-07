@@ -17,12 +17,8 @@ import ingestRoutes from './routes/ingest.js';
 import notesRoutes from './routes/notes.js';
 import projectRoutes from './routes/projects.js';
 
-// RAG — shared vector store with standalone Elena
-import { initVectorStore, setupSchema } from './services/vectorStore.js';
-import { warmup as warmupEmbeddings } from './services/embeddings.js';
-// Rules engine — shared source of truth
-import { initRulesPool, setupRulesSchema } from './services/rules.js';
-import rulesRoutes from './routes/rules.js';
+// RAG + Rules loaded dynamically — app works without them
+let initVectorStore, setupSchema, warmupEmbeddings, initRulesPool, setupRulesSchema, rulesRoutes;
 
 config();
 
@@ -71,29 +67,47 @@ app.use('/api/context', contextRoutes);
 app.use('/api/elena', ingestRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/projects', projectRoutes);
-app.use('/api/rules', rulesRoutes);
-
 // Init DB and start
 initDb();
 
-// Init vector store + rules (non-blocking — app works without them)
-if (process.env.DATABASE_URL) {
-  const connected = initVectorStore();
-  const rulesConnected = initRulesPool();
-  if (connected) {
-    setupSchema()
-      .then(() => console.log('pgvector ready — shared knowledge base active'))
-      .catch(err => console.error('pgvector setup failed:', err.message));
+// Init RAG + Rules dynamically (non-blocking — app works without them)
+(async () => {
+  if (!process.env.DATABASE_URL) {
+    console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
+    return;
   }
-  if (rulesConnected) {
-    setupRulesSchema()
-      .then(() => console.log('Rules engine ready — shared rules active'))
-      .catch(err => console.error('Rules schema setup failed:', err.message));
+  try {
+    const vs = await import('./services/vectorStore.js');
+    const emb = await import('./services/embeddings.js');
+    initVectorStore = vs.initVectorStore;
+    setupSchema = vs.setupSchema;
+    warmupEmbeddings = emb.warmup;
+
+    const connected = initVectorStore();
+    if (connected) {
+      await setupSchema().catch(err => console.error('pgvector setup failed:', err.message));
+      console.log('pgvector ready — shared knowledge base active');
+    }
+    warmupEmbeddings().catch(() => {});
+  } catch (err) {
+    console.warn('RAG modules not available:', err.message);
   }
-  warmupEmbeddings().catch(() => {});
-} else {
-  console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
-}
+  try {
+    const rules = await import('./services/rules.js');
+    initRulesPool = rules.initRulesPool;
+    setupRulesSchema = rules.setupRulesSchema;
+    const rulesConnected = initRulesPool();
+    if (rulesConnected) {
+      await setupRulesSchema().catch(err => console.error('Rules schema setup failed:', err.message));
+      console.log('Rules engine ready — shared rules active');
+    }
+    const rr = await import('./routes/rules.js');
+    rulesRoutes = rr.default;
+    app.use('/api/rules', rulesRoutes);
+  } catch (err) {
+    console.warn('Rules module not available:', err.message);
+  }
+})();
 
 app.listen(PORT, () => {
   console.log(`Corey Portal API running on :${PORT}`);
