@@ -70,10 +70,10 @@ app.use('/api/projects', projectRoutes);
 // Init DB and start
 initDb();
 
-// Init RAG + Rules dynamically (non-blocking — app works without them)
+// Init RAG + Rules + Conversations dynamically (non-blocking — app works without them)
 (async () => {
   if (!process.env.DATABASE_URL) {
-    console.log('No DATABASE_URL — RAG + rules disabled, hardcoded knowledge only');
+    console.log('No DATABASE_URL — RAG + rules + persistent conversations disabled');
     return;
   }
   try {
@@ -106,6 +106,18 @@ initDb();
     app.use('/api/rules', rulesRoutes);
   } catch (err) {
     console.warn('Rules module not available:', err.message);
+  }
+  // Persistent conversations — shared Postgres
+  try {
+    const pgConvos = await import('./services/pgConversations.js');
+    const convosConnected = pgConvos.initConversationsPool();
+    if (convosConnected) {
+      await pgConvos.setupConversationsSchema().catch(err => console.error('Conversations schema setup failed:', err.message));
+      await pgConvos.ensurePortalConversation().catch(() => {});
+      console.log('Postgres conversations ready — portal history persists across deploys');
+    }
+  } catch (err) {
+    console.warn('pgConversations not available:', err.message);
   }
 })();
 

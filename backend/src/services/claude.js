@@ -9,6 +9,25 @@ const PATIENT_DIRECTORY = require('../config/patient-directory.json');
 import { buildContextForMessage, logDecision, addFollowup, ingestContent } from './context.js';
 import { buildLearnedContext, processForLearning } from './memory.js';
 
+// Postgres conversations — persistent across deploys
+let pgConvosReady, ensurePortalConversation, addPortalMessage, getPortalHistory;
+try {
+  const pgConvos = await import('./pgConversations.js');
+  pgConvosReady = pgConvos.isConversationsReady;
+  ensurePortalConversation = pgConvos.ensurePortalConversation;
+  addPortalMessage = pgConvos.addPortalMessage;
+  getPortalHistory = pgConvos.getPortalHistory;
+  // Ensure portal conversation exists on startup
+  if (pgConvosReady()) {
+    ensurePortalConversation().catch(err =>
+      console.warn('Portal conversation init:', err.message)
+    );
+  }
+} catch (err) {
+  console.warn('pgConversations not available:', err.message);
+  pgConvosReady = () => false;
+}
+
 // RAG imports — shared vector store with standalone Elena
 let ragEmbed, ragSearch, ragKeywordSearch, ragReady;
 try {
@@ -73,22 +92,26 @@ async function getRAGContext(userMessage) {
 
 // Chat with Elena — full context-aware conversation
 export async function chat(userMessage, contextModule = null) {
-  const db = getDb();
-
   // Build cross-channel context from the message
   const context = await buildContextForMessage(userMessage);
   const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
-  // Get conversation history (last 20 messages)
-  const history = db.prepare(
-    'SELECT role, content FROM conversations ORDER BY created_at DESC LIMIT 20'
-  ).all().reverse();
+  // Get conversation history — Postgres if available, SQLite fallback
+  let history;
+  if (pgConvosReady && pgConvosReady()) {
+    const pgHistory = await getPortalHistory(20);
+    history = pgHistory.map(h => ({ role: h.role, content: h.content }));
+  } else {
+    const db = getDb();
+    history = db.prepare(
+      'SELECT role, content FROM conversations ORDER BY created_at DESC LIMIT 20'
+    ).all().reverse();
+  }
 
   // Build system prompt with live context
   let systemPrompt = ELENA_SYSTEM_PROMPT + ADHD_COMMUNICATION_PROFILE + '\n\n' + KNOWLEDGE_BASE + '\n\n' + SLACK_KNOWLEDGE + contextBlock;
 
   // RULES — injected FIRST, above all other retrieved context
-  // Rules are the source of truth and override everything else
   const rulesBlock = await buildRulesBlock();
   if (rulesBlock) systemPrompt += rulesBlock;
 
@@ -123,9 +146,15 @@ export async function chat(userMessage, contextModule = null) {
 
   const assistantMessage = response.content[0].text;
 
-  // Save to conversation history
-  db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('user', userMessage, contextModule);
-  db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('assistant', assistantMessage, contextModule);
+  // Save to conversation history — Postgres if available, SQLite fallback
+  if (pgConvosReady && pgConvosReady()) {
+    await addPortalMessage('user', userMessage, contextModule);
+    await addPortalMessage('assistant', assistantMessage, contextModule);
+  } else {
+    const db = getDb();
+    db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('user', userMessage, contextModule);
+    db.prepare('INSERT INTO conversations (role, content, context_module) VALUES (?, ?, ?)').run('assistant', assistantMessage, contextModule);
+  }
 
   // Ingest entities from both messages for context tracking
   await ingestContent(userMessage, contextModule || 'assistant', '');
@@ -281,7 +310,6 @@ function findPatientContext(message) {
 }
 
 // Detect when user explicitly asks Elena to remember something
-// ONLY triggers on "elena remember" / "remember that" — nothing else
 async function detectAndCreateRule(userMessage) {
   const msgLower = userMessage.toLowerCase().trim();
   const rememberTriggers = [

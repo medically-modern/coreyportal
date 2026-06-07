@@ -5,6 +5,16 @@ import { getDb } from '../db/init.js';
 import { getThreads, getUnreadCount, checkConnection as gmailCheck } from '../services/gmail.js';
 import { getTextConversations, getMissedCalls, checkConnection as rcCheck } from '../services/ringcentral.js';
 
+// Postgres conversations — persistent history
+let pgConvosReady, getPortalHistory;
+try {
+  const pgConvos = await import('../services/pgConversations.js');
+  pgConvosReady = pgConvos.isConversationsReady;
+  getPortalHistory = pgConvos.getPortalHistory;
+} catch {
+  pgConvosReady = () => false;
+}
+
 const router = Router();
 
 router.post('/chat', async (req, res) => {
@@ -20,8 +30,21 @@ router.post('/chat', async (req, res) => {
   }
 });
 
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   try {
+    if (pgConvosReady && pgConvosReady()) {
+      const history = await getPortalHistory(50);
+      return res.json({
+        messages: history.map(h => ({
+          role: h.role,
+          content: h.content,
+          context_module: h.context_module,
+          created_at: h.created_at,
+        }))
+      });
+    }
+
+    // SQLite fallback
     const db = getDb();
     const history = db.prepare(
       'SELECT role, content, context_module, created_at FROM conversations ORDER BY created_at DESC LIMIT 50'
@@ -57,7 +80,6 @@ router.get('/debug-focus', async (req, res) => {
   const phone = req.query.phone || '';
   const debug = { phone, steps: [] };
 
-  // Step 1: Full conversation lookup (paginates through ALL RC messages, client-side phone match)
   try {
     const { getFullConversation } = await import('../services/ringcentral.js');
     const msgs = await getFullConversation(phone, 180);
@@ -72,7 +94,6 @@ router.get('/debug-focus', async (req, res) => {
     debug.steps.push({ step: 'RC full conversation', error: e.message });
   }
 
-  // Step 3: Monday.com search
   try {
     const { searchMondayPatient } = await import('./monday.js');
     const results = await searchMondayPatient(phone);
@@ -93,32 +114,23 @@ router.post('/focus-context', async (req, res) => {
     let conversationHistory = '';
     let patientName = '';
 
-    // Pull real conversation history based on channel
     if (item.channel === 'rc' && item.from) {
       try {
         const { getFullConversation } = await import('../services/ringcentral.js');
         const phone = /^\+?\d/.test(item.from) ? item.from : null;
-        console.log(`[focus-context] RC full conversation lookup for: ${phone}`);
         if (phone) {
           const messages = await getFullConversation(phone, 180);
-          console.log(`[focus-context] Found ${messages.length} total messages for ${phone}`);
-
           if (messages.length > 0) {
-            // Show most recent 30 messages (chronological — oldest to newest)
             const recent = messages.slice(-30);
             conversationHistory = `\n\nFULL SMS CONVERSATION HISTORY (${messages.length} total messages, showing last ${recent.length}):\n`;
             for (const msg of recent) {
               const dir = msg.direction === 'Inbound' ? 'THEM' : 'US';
               conversationHistory += `[${dir}] ${msg.text} (${msg.time})\n`;
             }
-            // Extract patient name from outbound messages
             for (const msg of messages) {
               if (msg.direction === 'Outbound' && msg.text) {
                 const nameMatch = msg.text.match(/^(?:Hey|Dear|Hi)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
-                if (nameMatch) {
-                  patientName = nameMatch[1];
-                  break;
-                }
+                if (nameMatch) { patientName = nameMatch[1]; break; }
               }
             }
           }
@@ -141,7 +153,6 @@ router.post('/focus-context', async (req, res) => {
       }
     }
 
-    // Check entities DB for additional context
     let entityContext = '';
     const searchTerm = patientName || item.from || '';
     if (searchTerm) {
@@ -149,14 +160,11 @@ router.post('/focus-context', async (req, res) => {
         const entities = searchEntities(searchTerm);
         if (entities && entities.length > 0) {
           entityContext = '\n\nKNOWN ENTITY INFO:\n';
-          for (const e of entities) {
-            entityContext += `${e.name}: ${e.details || e.type || ''}\n`;
-          }
+          for (const e of entities) { entityContext += `${e.name}: ${e.details || e.type || ''}\n`; }
         }
       } catch {}
     }
 
-    // Monday.com patient lookup — only for RC texts (not emails)
     let mondayContext = '';
     let mondayTimedOut = false;
     let mondaySearched = false;
@@ -177,13 +185,9 @@ router.post('/focus-context', async (req, res) => {
             for (const r of mondayResults.slice(0, 3)) {
               mondayContext += `Patient: ${r.name} | Board: ${r.board} | Stage: ${r.group}\n`;
               const cols = Object.entries(r.columns || {}).slice(0, 8);
-              if (cols.length > 0) {
-                mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`;
-              }
+              if (cols.length > 0) { mondayContext += `  Details: ${cols.map(([k, v]) => `${k}: ${v}`).join(' | ')}\n`; }
             }
-            if (!patientName && mondayResults[0]?.name) {
-              patientName = mondayResults[0].name;
-            }
+            if (!patientName && mondayResults[0]?.name) patientName = mondayResults[0].name;
           } else {
             mondayContext = '\n\n⚠️ MONDAY.COM: Patient NOT FOUND on any board. This may need follow-up.\n';
           }
@@ -192,24 +196,19 @@ router.post('/focus-context', async (req, res) => {
         if (e.message === 'Monday search timeout') {
           mondayTimedOut = true;
           mondayContext = '\n\n⚠️ MONDAY.COM: Search timed out — could not verify patient records.\n';
-          console.warn('[focus-context] Monday search timed out after 8s');
         } else {
-          console.error('Monday patient lookup error:', e.message);
           mondayContext = '\n\n⚠️ MONDAY.COM: Search failed — could not verify patient records.\n';
         }
       }
     }
 
-    // Build data-availability flags for Elena
     const hasConversationHistory = conversationHistory.length > 0;
     const hasMondayData = mondayContext.includes('Patient:');
 
     const { oneShot } = await import('../services/claude.js');
 
-    // Channel-specific prompts
     let prompt;
     if (isTextChannel) {
-      // ── TEXT/RC prompt: patient-focused ──
       prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at a TEXT MESSAGE in his focus queue.
 
 ## ABSOLUTE RULES
@@ -231,27 +230,17 @@ Time: ${item.time || ''}
 ${conversationHistory}${entityContext}${mondayContext}
 
 ## RESPONSE FORMAT — STRICT JSON ONLY
-Return ONLY a JSON object with these exact keys, no markdown, no explanation:
-{
-  "summary": "1 sentence: what this is about (use patient name if found)",
-  "action": "1 sentence: exactly what Corey should do next",
-  "urgency": "do_now" or "today" or "can_wait",
-  "flags": ["array of short warning strings, e.g. 'Not found on Monday.com boards'"]
-}
-
-${!hasConversationHistory ? 'Add "Couldn\'t pull conversation history" to flags array.' : ''}
-${mondaySearched && !hasMondayData ? 'Add "Not found on Monday.com boards" to flags array.' : ''}
-Return ONLY the JSON object. No markdown fences, no explanation.`;
+Return ONLY a JSON object:
+{"summary":"1 sentence","action":"1 sentence","urgency":"do_now|today|can_wait","flags":["..."]}
+${!hasConversationHistory ? 'Add "Couldn\'t pull conversation history" to flags.' : ''}
+${mondaySearched && !hasMondayData ? 'Add "Not found on Monday.com boards" to flags.' : ''}
+Return ONLY the JSON object.`;
     } else {
-      // ── EMAIL prompt: business-context-aware ──
       prompt = `You're Elena, Corey's ADHD-friendly assistant. Corey is looking at an EMAIL in his focus queue.
 
 ## RULES
 1. ONLY reference information provided below. NEVER invent context.
 2. Classify the email type: vendor/invoice, patient communication, internal, marketing/spam, regulatory, or other.
-3. For vendor/invoice emails: summarize what's owed, to whom, and any deadline. Do NOT look up names as patients.
-4. For patient emails: note who it's from and what they need.
-5. For marketing/spam: tell Corey he can skip it.
 
 ## ITEM
 From: ${item.from || 'Unknown'}
@@ -261,31 +250,22 @@ Time: ${item.time || ''}
 ${conversationHistory}${entityContext}
 
 ## RESPONSE FORMAT — STRICT JSON ONLY
-Return ONLY a JSON object with these exact keys, no markdown, no explanation:
-{
-  "type": "vendor/invoice" or "patient" or "internal" or "spam" or "regulatory" or "other",
-  "summary": "1 sentence: what this email is about",
-  "action": "1 sentence: what Corey should do",
-  "urgency": "do_now" or "today" or "can_wait",
-  "flags": []
-}
-Return ONLY the JSON object. No markdown fences, no explanation.`;
+Return ONLY a JSON object:
+{"type":"vendor/invoice|patient|internal|spam|regulatory|other","summary":"1 sentence","action":"1 sentence","urgency":"do_now|today|can_wait","flags":[]}
+Return ONLY the JSON object.`;
     }
 
     const raw = await oneShot(prompt);
-    // Parse structured JSON from Elena
     let parsed;
     try {
       const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
       parsed = JSON.parse(cleaned);
     } catch {
-      // Fallback: return as plain text if JSON parsing fails
       parsed = { summary: raw, action: '', urgency: 'today', flags: [] };
     }
-    // Normalize urgency
     const urgency = (parsed.urgency || 'today').toLowerCase().replace(/\s+/g, '_');
     res.json({
-      context: parsed.summary || raw, // backwards compat
+      context: parsed.summary || raw,
       structured: {
         summary: parsed.summary || '',
         action: parsed.action || '',
@@ -300,23 +280,16 @@ Return ONLY the JSON object. No markdown fences, no explanation.`;
   }
 });
 
-// Elena drafts a reply for Corey
 router.post('/draft-reply', async (req, res) => {
   try {
     const { channel, originalText, from, subject, conversationHistory } = req.body;
     if (!originalText) return res.status(400).json({ error: 'originalText required' });
-
     const { draftResponse } = await import('../services/claude.js');
-
-    // Build context for the draft
     let fullContext = '';
-    if (conversationHistory) {
-      fullContext += `Recent conversation:\n${conversationHistory}\n\n`;
-    }
+    if (conversationHistory) fullContext += `Recent conversation:\n${conversationHistory}\n\n`;
     fullContext += `Latest message from ${from || 'contact'}:\n`;
     if (subject) fullContext += `Subject: ${subject}\n`;
     fullContext += originalText;
-
     const draft = await draftResponse(fullContext, channel || 'email');
     res.json({ draft });
   } catch (err) {
@@ -325,10 +298,8 @@ router.post('/draft-reply', async (req, res) => {
   }
 });
 
-// Elena's live briefing — fetches ALL unread Gmail (30 days) + RC texts (3 days) before generating
 router.post('/briefing', async (req, res) => {
   try {
-    // Fetch live data from Gmail and RingCentral in parallel
     const results = await Promise.allSettled([
       gmailCheck().then(async (status) => {
         if (!status.connected) return { connected: false };
@@ -352,8 +323,7 @@ router.post('/briefing', async (req, res) => {
       }),
       (async () => {
         const db = getDb();
-        const questions = db.prepare("SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC").all();
-        return questions;
+        return db.prepare("SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC").all();
       })()
     ]);
 
@@ -361,9 +331,8 @@ router.post('/briefing', async (req, res) => {
     const rc = results[1].status === 'fulfilled' ? results[1].value : { connected: false };
     const questions = results[2].status === 'fulfilled' ? results[2].value : [];
 
-    // ── Resolve phone numbers to patient names via Monday.com ──
     const { searchMondayPatient } = await import('./monday.js');
-    const phoneNameCache = {}; // cache to avoid duplicate lookups
+    const phoneNameCache = {};
 
     async function resolvePhone(phone) {
       if (!phone || !/^\+?\d/.test(phone)) return phone;
@@ -383,7 +352,6 @@ router.post('/briefing', async (req, res) => {
       return phone;
     }
 
-    // Also try extracting patient name from outbound messages in a conversation
     function extractNameFromConvo(messages) {
       for (const msg of messages || []) {
         if (msg.direction === 'Outbound' && msg.text) {
@@ -394,22 +362,14 @@ router.post('/briefing', async (req, res) => {
       return null;
     }
 
-    // Resolve all unique phone numbers from RC data in parallel
     if (rc.connected) {
       const allPhones = new Set();
-      for (const c of rc.texts || []) {
-        if (/^\+?\d/.test(c.contact)) allPhones.add(c.contact);
-      }
-      for (const call of rc.missed || []) {
-        const p = call.from?.phoneNumber;
-        if (p) allPhones.add(p);
-      }
-      // Batch lookup — up to 20 at a time to avoid hammering Monday
+      for (const c of rc.texts || []) { if (/^\+?\d/.test(c.contact)) allPhones.add(c.contact); }
+      for (const call of rc.missed || []) { const p = call.from?.phoneNumber; if (p) allPhones.add(p); }
       const phonesToResolve = [...allPhones].slice(0, 40);
       await Promise.allSettled(phonesToResolve.map(p => resolvePhone(p)));
     }
 
-    // Build a live data summary for Elena
     let liveContext = '\n\n## LIVE DATA (just fetched)\n';
     liveContext += 'IMPORTANT: "unread" means "unprocessed" — Corey uses read/unread status to track what he\'s handled.\n';
     liveContext += 'Phone numbers below have been looked up in Monday.com. If a name appears, that IS the patient.\n';
@@ -419,21 +379,13 @@ router.post('/briefing', async (req, res) => {
       liveContext += `\n### Email: ${gmail.unreadCount || unread.length} unprocessed emails (past 30 days)\n`;
       if (unread.length > 0) {
         liveContext += `All unprocessed emails (${unread.length} total):\n`;
-        for (const t of unread) {
-          liveContext += `- From: ${t.from} | Subject: "${t.subject}" | Preview: ${t.snippet?.substring(0, 100)} | Date: ${t.date}\n`;
-        }
-      } else {
-        liveContext += 'Inbox zero on unprocessed.\n';
-      }
+        for (const t of unread) { liveContext += `- From: ${t.from} | Subject: "${t.subject}" | Preview: ${t.snippet?.substring(0, 100)} | Date: ${t.date}\n`; }
+      } else { liveContext += 'Inbox zero on unprocessed.\n'; }
       if (gmail.allRecent && gmail.allRecent.length > 0) {
         liveContext += '\nMost recent threads (for context):\n';
-        for (const t of gmail.allRecent.slice(0, 10)) {
-          liveContext += `- ${t.isUnread ? 'UNPROCESSED ' : ''}${t.from}: "${t.subject}" (${t.date})\n`;
-        }
+        for (const t of gmail.allRecent.slice(0, 10)) { liveContext += `- ${t.isUnread ? 'UNPROCESSED ' : ''}${t.from}: "${t.subject}" (${t.date})\n`; }
       }
-    } else {
-      liveContext += '\n### Email: Not connected (Gmail OAuth needed)\n';
-    }
+    } else { liveContext += '\n### Email: Not connected (Gmail OAuth needed)\n'; }
 
     if (rc.connected && rc.texts) {
       const sorted = [...rc.texts].sort((a, b) => {
@@ -441,23 +393,17 @@ router.post('/briefing', async (req, res) => {
         if (a.unread === 0 && b.unread > 0) return 1;
         return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
       });
-
       const totalUnread = sorted.reduce((sum, c) => sum + (c.unread || 0), 0);
       const unreadConvos = sorted.filter(c => c.unread > 0);
       liveContext += `\n### Texts (past 3 days): ${totalUnread} unread across ${unreadConvos.length} conversations\n`;
-
       if (unreadConvos.length > 0) {
         liveContext += '\nUNREAD (needs attention):\n';
         for (const c of unreadConvos) {
-          // Use resolved name from Monday, or extract from outbound msgs, or raw number
           const name = phoneNameCache[c.contact?.replace(/\D/g, '')] || extractNameFromConvo(c.messages) || c.contact;
           liveContext += `- ${name} (${c.unread} unread):\n`;
-          for (const msg of c.messages.slice(0, 3)) {
-            liveContext += `    ${msg.direction === 'Inbound' ? '<- ' : '-> '}"${msg.text?.substring(0, 100) || ''}" (${msg.time})\n`;
-          }
+          for (const msg of c.messages.slice(0, 3)) { liveContext += `    ${msg.direction === 'Inbound' ? '<- ' : '-> '}"${msg.text?.substring(0, 100) || ''}" (${msg.time})\n`; }
         }
       }
-
       const readConvos = sorted.filter(c => c.unread === 0);
       if (readConvos.length > 0) {
         liveContext += `\nAlready handled (${readConvos.length} conversations):\n`;
@@ -467,25 +413,19 @@ router.post('/briefing', async (req, res) => {
           liveContext += `- ${name}: "${lastMsg?.text?.substring(0, 60) || ''}" (${lastMsg?.direction || ''})\n`;
         }
       }
-
       if (rc.missed && rc.missed.length > 0) {
         liveContext += `\n### Missed calls: ${rc.missed.length}\n`;
-        liveContext += 'IMPORTANT: These are real patients calling from their phones. Every number is a patient — look up by the resolved name.\n';
         for (const call of rc.missed) {
           const rawPhone = call.from?.phoneNumber || call.from?.name || 'Unknown';
           const name = phoneNameCache[rawPhone.replace(/\D/g, '')] || rawPhone;
           liveContext += `- ${name} at ${call.startTime}\n`;
         }
       }
-    } else {
-      liveContext += '\n### Texts/Calls: Not connected\n';
-    }
+    } else { liveContext += '\n### Texts/Calls: Not connected\n'; }
 
     if (questions.length > 0) {
       liveContext += `\n### Team Questions: ${questions.length} pending\n`;
-      for (const q of questions) {
-        liveContext += `- [${q.priority || 'normal'}] ${q.from_name || 'Team'}: ${q.headline || q.question?.substring(0, 80)} (submitted ${q.created_at})\n`;
-      }
+      for (const q of questions) { liveContext += `- [${q.priority || 'normal'}] ${q.from_name || 'Team'}: ${q.headline || q.question?.substring(0, 80)} (submitted ${q.created_at})\n`; }
     }
 
     const { oneShot } = await import('../services/claude.js');
@@ -497,29 +437,18 @@ Analyze ALL the data and produce a structured briefing. Be warm, specific, and d
 ## RESPONSE FORMAT — STRICT JSON ONLY
 Return ONLY a JSON object with these exact keys:
 {
-  "greeting": "Short warm greeting, 1 sentence max (e.g. 'Hey Corey — busy morning, let me catch you up.')",
-  "urgent": [
-    {"label": "short description of urgent item", "detail": "1 sentence context/action"}
-  ],
-  "overview": {
-    "emails": number or 0,
-    "texts": number or 0,
-    "missed_calls": number or 0,
-    "team_questions": number or 0
-  },
-  "items": [
-    {"label": "person or subject", "detail": "what they need / what it's about", "type": "email|text|call|question"}
-  ],
-  "next_step": "1 sentence: the single most important thing Corey should do first and why"
+  "greeting": "Short warm greeting, 1 sentence max",
+  "urgent": [{"label": "short description", "detail": "1 sentence context/action"}],
+  "overview": {"emails": 0, "texts": 0, "missed_calls": 0, "team_questions": 0},
+  "items": [{"label": "person or subject", "detail": "what they need", "type": "email|text|call|question"}],
+  "next_step": "1 sentence: the single most important thing Corey should do first"
 }
 
 Rules:
 - "urgent" = things that need action RIGHT NOW. Max 2 items. Empty array if nothing urgent.
 - "items" = everything else worth mentioning, sorted by priority. Max 6 items.
 - Use real names and subjects from the data. Never invent.
-- If you know something from your memory about a patient or product, factor it in.
-
-Return ONLY the JSON object. No markdown fences, no explanation.
+Return ONLY the JSON object.
 
 ${liveContext}`;
 
@@ -528,9 +457,7 @@ ${liveContext}`;
     try {
       const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
       parsed = JSON.parse(cleaned);
-    } catch {
-      parsed = null;
-    }
+    } catch { parsed = null; }
 
     res.json({
       briefing: parsed ? null : raw,
