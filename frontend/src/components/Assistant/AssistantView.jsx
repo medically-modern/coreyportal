@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Send, Loader, Sparkles } from 'lucide-react';
+import { Send, Loader, Sparkles } from 'lucide-react';
 import { api } from '../../services/api';
+import ElenaLogo from '../shared/ElenaLogo';
 
 export default function AssistantView() {
   const [messages, setMessages] = useState([]);
@@ -68,7 +69,7 @@ export default function AssistantView() {
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="flex items-center gap-3 pb-4 border-b border-surface-200/10">
         <div className="w-10 h-10 rounded-full bg-brand-600/20 flex items-center justify-center">
-          <Bot size={20} className="text-brand-500" />
+          <ElenaLogo size={24} />
         </div>
         <div>
           <h1 className="text-lg font-bold">Elena</h1>
@@ -112,7 +113,7 @@ export default function AssistantView() {
             }`}>
               {msg.role === 'assistant' && (
                 <p className="text-xs text-brand-500 font-medium mb-1 flex items-center gap-1">
-                  <Bot size={10} /> Elena
+                  <ElenaLogo size={12} /> Elena
                 </p>
               )}
               <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>

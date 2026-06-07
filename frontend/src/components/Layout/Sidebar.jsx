@@ -2,8 +2,9 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, MessageSquare, Phone,
-  Bot, ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote
+  ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote
 } from 'lucide-react';
+import ElenaLogo from '../shared/ElenaLogo';
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -54,7 +55,7 @@ export default function Sidebar({ collapsed, onToggle }) {
             }`
           }
         >
-          <Bot size={20} />
+          <ElenaLogo size={20} />
           {!collapsed && 'Elena'}
         </NavLink>
       </div>

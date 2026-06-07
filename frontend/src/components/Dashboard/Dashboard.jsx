@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, Loader, Bot, RefreshCw, ChevronRight, CheckCircle2, ArrowRight, Zap, SkipForward, LayoutList } from 'lucide-react';
+import { Mail, Phone, MessageSquare, HelpCircle, Loader, RefreshCw, ChevronRight, CheckCircle2, ArrowRight, Zap, SkipForward, LayoutList } from 'lucide-react';
 import { api } from '../../services/api';
+import ElenaLogo from '../shared/ElenaLogo';
 import DoThisNext from '../Focus/DoThisNext';
 import ProgressRing from '../Focus/ProgressRing';
 import WhereWasI from '../Focus/WhereWasI';
@@ -73,7 +74,7 @@ function ChannelBucket({ icon: Icon, label, color, bgColor, count, items, loadin
                   className="p-1 rounded hover:bg-brand-600/20 text-surface-200/30 hover:text-brand-400 transition"
                   title="Send to Elena"
                 >
-                  <Bot size={12} />
+                  <ElenaLogo size={12} />
                 </button>
               </div>
             </div>
@@ -326,7 +327,7 @@ export default function Dashboard({ onNavigate }) {
       <div className="rounded-2xl bg-gradient-to-br from-brand-600/10 to-brand-900/20 border-2 border-brand-600/20 p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-brand-600/30 flex items-center justify-center">
-            <Bot size={20} className="text-brand-500" />
+            <ElenaLogo size={24} />
           </div>
           <div>
             <h2 className="font-bold text-brand-400">Elena</h2>

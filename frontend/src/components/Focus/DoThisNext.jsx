@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Bot, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp } from 'lucide-react';
+import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp } from 'lucide-react';
 import { api } from '../../services/api';
+import ElenaLogo from '../shared/ElenaLogo';
 
 function getUrgencyScore(item) {
   let score = 0;
@@ -231,7 +232,7 @@ function ReplyCompose({ current, elenaStructured, onSent }) {
             disabled={drafting}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-600/20 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition disabled:opacity-50"
           >
-            {drafting ? <Loader size={10} className="animate-spin" /> : <Bot size={10} />}
+            {drafting ? <Loader size={10} className="animate-spin" /> : <ElenaLogo size={12} />}
             {drafting ? 'Drafting...' : 'Elena Draft'}
           </button>
           {isText && replyText && (
@@ -489,7 +490,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         {/* Elena's context + recommendation */}
         <div className="rounded-xl bg-surface-900/40 border border-brand-600/20 p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <Bot size={14} className="text-brand-400" />
+            <ElenaLogo size={16} />
             <span className="text-xs font-semibold text-brand-400">Elena's Take</span>
           </div>
           {elenaLoading ? (
