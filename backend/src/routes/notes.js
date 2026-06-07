@@ -15,14 +15,14 @@ function ensureTable() {
       color TEXT DEFAULT 'gray',
       pinned INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT,
       archived INTEGER DEFAULT 0
     );
   `);
-  // Migrate existing tables missing new columns
+  // Migrate existing tables missing new columns (SQLite ALTER TABLE only allows constant defaults)
   try { db.exec('ALTER TABLE parking_lot ADD COLUMN color TEXT DEFAULT \'gray\''); } catch {}
   try { db.exec('ALTER TABLE parking_lot ADD COLUMN pinned INTEGER DEFAULT 0'); } catch {}
-  try { db.exec('ALTER TABLE parking_lot ADD COLUMN updated_at TEXT DEFAULT (datetime(\'now\'))'); } catch {}
+  try { db.exec('ALTER TABLE parking_lot ADD COLUMN updated_at TEXT'); } catch {}
   tableReady = true;
 }
 
