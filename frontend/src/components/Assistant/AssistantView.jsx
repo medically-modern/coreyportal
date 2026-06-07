@@ -68,9 +68,7 @@ export default function AssistantView() {
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="flex items-center gap-3 pb-4 border-b border-surface-200/10">
-        <div className="w-10 h-10 rounded-full bg-brand-600/20 flex items-center justify-center">
-          <ElenaLogo size={24} />
-        </div>
+        <ElenaLogo size={40} className="rounded-full" />
         <div>
           <h1 className="text-lg font-bold">Elena</h1>
           <p className="text-xs text-surface-200/40">Your AI executive assistant — knows your team, your patterns, your business</p>

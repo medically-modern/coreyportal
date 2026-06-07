@@ -326,9 +326,7 @@ export default function Dashboard({ onNavigate }) {
       {/* Elena's Briefing */}
       <div className="rounded-2xl bg-gradient-to-br from-brand-600/10 to-brand-900/20 border-2 border-brand-600/20 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-brand-600/30 flex items-center justify-center">
-            <ElenaLogo size={24} />
-          </div>
+          <ElenaLogo size={40} className="rounded-full" />
           <div>
             <h2 className="font-bold text-brand-400">Elena</h2>
             <p className="text-xs text-surface-200/40">Your briefing — just now</p>

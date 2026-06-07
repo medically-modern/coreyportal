@@ -7,10 +7,8 @@ export default function ElenaLogo({ size = 20, className = '' }) {
     <img
       src={`${BASE_URL}elena-logo.svg`}
       alt="Elena"
-      width={size}
-      height={size}
-      className={`rounded-sm ${className}`}
-      style={{ width: size, height: size }}
+      className={`rounded-md object-cover ${className}`}
+      style={{ width: size, height: size, minWidth: size, minHeight: size }}
     />
   );
 }
