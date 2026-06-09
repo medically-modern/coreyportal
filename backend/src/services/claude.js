@@ -216,13 +216,26 @@ export async function draftResponse(originalMessage, channel = 'email') {
   const context = await buildContextForMessage(originalMessage);
   const contextBlock = ELENA_CONTEXT_PROMPT(context);
 
+  const draftSystemPrompt = `You are a ghostwriter drafting a ${channel === 'email' ? 'email reply' : 'text message'} for Corey, CEO of Medically Modern (a DME company).
+
+Corey's tone: professional but personable, direct, confident. Not overly formal. Friendly but efficient.
+${channel === 'email' ? 'For emails: include a greeting and sign-off with "Corey". No subject line — this is a reply.' : 'For texts: keep it short and conversational. No greeting/sign-off unless natural.'}
+${contextBlock}
+
+OUTPUT RULES — ABSOLUTE, NO EXCEPTIONS:
+- Output ONLY the message body Corey will send
+- No labels, headers, prefixes, or "Draft:" markers
+- No "Action:" or "Subject:" lines
+- No bold text or markdown formatting
+- No quotes around the message
+- No explanation before or after
+- Just the raw sendable text, ready to copy-paste and send`;
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 500,
-    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nDraft a reply for Corey to send via ${channel}. Match his tone: professional but personable, direct, confident. Use any relevant context you have about the person or issue. Keep it concise.
-
-CRITICAL: Output ONLY the message body that Corey will send. No labels, no headers, no "Draft reply:" prefix, no "Action:" lines, no quotes around the text, no explanation. Just the raw sendable message text and nothing else.`,
-    messages: [{ role: 'user', content: `Draft a reply to this. Output ONLY the message text, nothing else:\n\n${originalMessage}` }]
+    system: draftSystemPrompt,
+    messages: [{ role: 'user', content: `Draft a reply to this:\n\n${originalMessage}` }]
   });
 
   return response.content[0].text;
