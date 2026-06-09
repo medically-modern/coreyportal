@@ -219,8 +219,10 @@ export async function draftResponse(originalMessage, channel = 'email') {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 500,
-    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nDraft a reply for Corey to send via ${channel}. Match his tone: professional but personable, direct, confident. Use any relevant context you have about the person or issue. Keep it concise.`,
-    messages: [{ role: 'user', content: `Draft a reply to this:\n\n${originalMessage}` }]
+    system: ELENA_SYSTEM_PROMPT + contextBlock + `\n\nDraft a reply for Corey to send via ${channel}. Match his tone: professional but personable, direct, confident. Use any relevant context you have about the person or issue. Keep it concise.
+
+CRITICAL: Output ONLY the message body that Corey will send. No labels, no headers, no "Draft reply:" prefix, no "Action:" lines, no quotes around the text, no explanation. Just the raw sendable message text and nothing else.`,
+    messages: [{ role: 'user', content: `Draft a reply to this. Output ONLY the message text, nothing else:\n\n${originalMessage}` }]
   });
 
   return response.content[0].text;
