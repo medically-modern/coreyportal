@@ -1,7 +1,41 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp, Sparkles } from 'lucide-react';
 import { api } from '../../services/api';
 import ElenaLogo from '../shared/ElenaLogo';
+
+// ── Elena take cache (localStorage) ──
+const TAKE_CACHE_KEY = 'corey-elena-takes';
+const TAKE_CACHE_MAX_AGE = 4 * 60 * 60 * 1000; // 4 hours
+
+function getTakeCache() {
+  try {
+    const raw = localStorage.getItem(TAKE_CACHE_KEY);
+    if (!raw) return {};
+    const cache = JSON.parse(raw);
+    // Prune expired entries
+    const now = Date.now();
+    const pruned = {};
+    for (const [key, val] of Object.entries(cache)) {
+      if (val.time && (now - val.time < TAKE_CACHE_MAX_AGE)) pruned[key] = val;
+    }
+    return pruned;
+  } catch { return {}; }
+}
+
+function setTakeCache(itemId, data) {
+  try {
+    const cache = getTakeCache();
+    cache[itemId] = { ...data, time: Date.now() };
+    // Keep max 50 entries
+    const entries = Object.entries(cache).sort((a, b) => b[1].time - a[1].time).slice(0, 50);
+    localStorage.setItem(TAKE_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {}
+}
+
+function getCachedTake(itemId) {
+  const cache = getTakeCache();
+  return cache[itemId] || null;
+}
 
 function getUrgencyScore(item) {
   let score = 0;
@@ -277,7 +311,7 @@ function ReplyCompose({ current, elenaStructured, onSent }) {
   );
 }
 
-export default function DoThisNext({ emailData, slackData, rcData, questions, onDismiss, onNavigate }) {
+export default function DoThisNext({ emailData, slackData, rcData, questions, onDismiss, onNavigate, elenaEnabled = true }) {
   const [dismissed, setDismissed] = useState(new Set());
   const [snoozed, setSnoozed] = useState(new Map());
   const [completed, setCompleted] = useState(new Set());
@@ -286,6 +320,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   const [elenaContext, setElenaContext] = useState(null);
   const [elenaStructured, setElenaStructured] = useState(null);
   const [elenaLoading, setElenaLoading] = useState(false);
+  const [elenaRequested, setElenaRequested] = useState(false);
   const [showConversation, setShowConversation] = useState(false);
   const lastContextId = useRef(null);
 
@@ -350,36 +385,54 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   const totalHandled = completed.size + dismissed.size;
   const total = allItems.length;
 
-  // Close conversation panel when item changes
+  // When current item changes: reset state, load from cache if available
   useEffect(() => {
     setShowConversation(false);
-  }, [current?.id]);
-
-  // Fetch Elena context when current item changes
-  useEffect(() => {
-    if (!current || current.id === lastContextId.current) return;
-    lastContextId.current = current.id;
     setElenaContext(null);
     setElenaStructured(null);
+    setElenaLoading(false);
+    setElenaRequested(false);
+    lastContextId.current = current?.id || null;
+
+    if (current?.id) {
+      const cached = getCachedTake(current.id);
+      if (cached) {
+        setElenaContext(cached.context || null);
+        setElenaStructured(cached.structured || null);
+        setElenaRequested(true);
+      }
+    }
+  }, [current?.id]);
+
+  // Fetch Elena context on demand (button press)
+  const fetchElenaTake = useCallback(async () => {
+    if (!current) return;
     setElenaLoading(true);
-    api.focusContext({
-      channel: current.channel,
-      from: current.from,
-      subject: current.subject,
-      text: current.snippet,
-      time: current.time,
-      urgent: current.urgent,
-      threadId: current.threadId,
-    }).then(res => {
+    setElenaRequested(true);
+    try {
+      const res = await api.focusContext({
+        channel: current.channel,
+        from: current.from,
+        subject: current.subject,
+        text: current.snippet,
+        time: current.time,
+        urgent: current.urgent,
+        threadId: current.threadId,
+      });
       setElenaContext(res.context);
       setElenaStructured(res.structured || null);
-    }).catch(() => {
+      // Persist to localStorage
+      setTakeCache(current.id, {
+        context: res.context,
+        structured: res.structured || null,
+      });
+    } catch {
       setElenaContext(null);
       setElenaStructured(null);
-    }).finally(() => {
+    } finally {
       setElenaLoading(false);
-    });
-  }, [current?.id]);
+    }
+  }, [current]);
 
   if (!current || allItems.length === 0) {
     return (
@@ -487,70 +540,92 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
           </p>
         </div>
 
-        {/* Elena's context + recommendation */}
-        <div className="rounded-xl bg-surface-900/40 border border-brand-600/20 p-4 mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <ElenaLogo size={16} />
-            <span className="text-xs font-semibold text-brand-400">Elena's Take</span>
-          </div>
-          {elenaLoading ? (
-            <div className="flex items-center gap-2 text-sm text-surface-200/40">
-              <Loader size={12} className="animate-spin" />
-              Reading context...
+        {/* Elena's context + recommendation — only when enabled */}
+        {elenaEnabled && (
+          <div className="rounded-xl bg-surface-900/40 border border-brand-600/20 p-4 mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <ElenaLogo size={16} />
+              <span className="text-xs font-semibold text-brand-400">Elena's Take</span>
             </div>
-          ) : elenaStructured ? (
-            <div className="space-y-3">
-              {/* Urgency badge */}
-              <div>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
-                  elenaStructured.urgency === 'do_now' ? 'bg-bad/20 text-bad' :
-                  elenaStructured.urgency === 'can_wait' ? 'bg-good/20 text-good' :
-                  'bg-amber-500/20 text-amber-400'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    elenaStructured.urgency === 'do_now' ? 'bg-bad animate-pulse' :
-                    elenaStructured.urgency === 'can_wait' ? 'bg-good' :
-                    'bg-amber-400'
-                  }`} />
-                  {elenaStructured.urgency === 'do_now' ? 'Do Now' :
-                   elenaStructured.urgency === 'can_wait' ? 'Can Wait' : 'Today'}
-                </span>
-                {elenaStructured.type && elenaStructured.type !== 'patient' && elenaStructured.type !== 'email' && (
-                  <span className="ml-2 text-xs text-surface-200/40 capitalize">{elenaStructured.type}</span>
+
+            {/* Not yet requested — show button */}
+            {!elenaRequested && !elenaLoading ? (
+              <div className="flex items-center gap-3 py-2">
+                <button
+                  onClick={fetchElenaTake}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600/20 hover:bg-brand-600/30 text-brand-400 text-sm font-medium transition"
+                >
+                  <Sparkles size={14} /> Get Elena's Take
+                </button>
+                <span className="text-xs text-surface-200/25">Analyzes context, history, and patient records</span>
+              </div>
+            ) : elenaLoading ? (
+              <div className="flex items-center gap-2 text-sm text-surface-200/40">
+                <Loader size={12} className="animate-spin" />
+                Reading context...
+              </div>
+            ) : elenaStructured ? (
+              <div className="space-y-3">
+                {/* Urgency badge */}
+                <div>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${
+                    elenaStructured.urgency === 'do_now' ? 'bg-bad/20 text-bad' :
+                    elenaStructured.urgency === 'can_wait' ? 'bg-good/20 text-good' :
+                    'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      elenaStructured.urgency === 'do_now' ? 'bg-bad animate-pulse' :
+                      elenaStructured.urgency === 'can_wait' ? 'bg-good' :
+                      'bg-amber-400'
+                    }`} />
+                    {elenaStructured.urgency === 'do_now' ? 'Do Now' :
+                     elenaStructured.urgency === 'can_wait' ? 'Can Wait' : 'Today'}
+                  </span>
+                  {elenaStructured.type && elenaStructured.type !== 'patient' && elenaStructured.type !== 'email' && (
+                    <span className="ml-2 text-xs text-surface-200/40 capitalize">{elenaStructured.type}</span>
+                  )}
+                </div>
+
+                {/* Summary */}
+                <div>
+                  <p className="text-xs font-semibold text-surface-200/40 uppercase tracking-wider mb-1">What's This</p>
+                  <p className="text-sm text-surface-200/80 leading-relaxed">{elenaStructured.summary}</p>
+                </div>
+
+                {/* Action — visually distinct */}
+                {elenaStructured.action && (
+                  <div className="rounded-lg bg-brand-600/10 border border-brand-600/20 px-3 py-2.5">
+                    <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">Next Step</p>
+                    <p className="text-sm text-white font-medium leading-relaxed">{elenaStructured.action}</p>
+                  </div>
                 )}
+
+                {/* Flags */}
+                {elenaStructured.flags?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {elenaStructured.flags.map((flag, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
+                        ⚠ {flag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Refresh take */}
+                <button
+                  onClick={fetchElenaTake}
+                  className="text-[10px] text-surface-200/25 hover:text-brand-400 flex items-center gap-1 transition"
+                >
+                  <Sparkles size={8} /> Refresh take
+                </button>
               </div>
-
-              {/* Summary */}
-              <div>
-                <p className="text-xs font-semibold text-surface-200/40 uppercase tracking-wider mb-1">What's This</p>
-                <p className="text-sm text-surface-200/80 leading-relaxed">{elenaStructured.summary}</p>
-              </div>
-
-              {/* Action — visually distinct */}
-              {elenaStructured.action && (
-                <div className="rounded-lg bg-brand-600/10 border border-brand-600/20 px-3 py-2.5">
-                  <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">Next Step</p>
-                  <p className="text-sm text-white font-medium leading-relaxed">{elenaStructured.action}</p>
-                </div>
-              )}
-
-              {/* Flags */}
-              {elenaStructured.flags?.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {elenaStructured.flags.map((flag, i) => (
-                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
-                      ⚠ {flag}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : elenaContext ? (
-            <p className="text-sm text-surface-200/70 leading-relaxed">{elenaContext}</p>
-          ) : (
-            <p className="text-sm text-surface-200/30 italic">Context unavailable</p>
-          )}
-        </div>
+            ) : elenaContext ? (
+              <p className="text-sm text-surface-200/70 leading-relaxed">{elenaContext}</p>
+            ) : (
+              <p className="text-sm text-surface-200/30 italic">Context unavailable</p>
+            )}
+          </div>
+        )}
 
         {/* Reply compose — for emails and texts */}
         {canReply && (

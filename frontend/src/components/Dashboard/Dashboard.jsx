@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, Phone, MessageSquare, HelpCircle, Loader, RefreshCw, ChevronRight, CheckCircle2, ArrowRight, Zap, SkipForward, LayoutList } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Mail, Phone, MessageSquare, HelpCircle, Loader, RefreshCw, ChevronRight, CheckCircle2, ArrowRight, Zap, SkipForward, LayoutList, Sparkles, EyeOff, Eye } from 'lucide-react';
 import { api } from '../../services/api';
 import ElenaLogo from '../shared/ElenaLogo';
 import DoThisNext from '../Focus/DoThisNext';
@@ -127,7 +127,8 @@ export default function Dashboard({ onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [briefing, setBriefing] = useState(null);
   const [briefingStructured, setBriefingStructured] = useState(null);
-  const [briefingLoading, setBriefingLoading] = useState(true);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingRequested, setBriefingRequested] = useState(false);
   const [emailData, setEmailData] = useState({ count: 0, items: [] });
   const [slackData, setSlackData] = useState({ count: 0, items: [] });
   const [rcData, setRcData] = useState({ count: 0, items: [] });
@@ -135,11 +136,13 @@ export default function Dashboard({ onNavigate }) {
   const [channelsLoading, setChannelsLoading] = useState({ email: true, slack: true, rc: true, qa: true });
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('corey-view-mode') || 'focus');
   const [dismissedItems, setDismissedItems] = useState(new Set());
+  const [elenaEnabled, setElenaEnabled] = useState(() => localStorage.getItem('corey-elena-enabled') !== 'false');
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   useEffect(() => { localStorage.setItem('corey-view-mode', viewMode); }, [viewMode]);
+  useEffect(() => { localStorage.setItem('corey-elena-enabled', elenaEnabled); }, [elenaEnabled]);
 
   // Expose pending counts globally for HyperfocusGuard
   useEffect(() => {
@@ -252,32 +255,42 @@ export default function Dashboard({ onNavigate }) {
     setLoading(false);
   }
 
-  async function getElenaBriefing(forceRefresh = false) {
-    const cache = window.__elenaBriefingCache;
-    if (!forceRefresh && cache && (Date.now() - cache.time < 30 * 60 * 1000)) {
-      setBriefing(cache.text);
-      setBriefingStructured(cache.structured || null);
-      setBriefingLoading(false);
-      return;
-    }
+  // Load cached briefing from localStorage on mount (no API call)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('corey-elena-briefing');
+      if (cached) {
+        const data = JSON.parse(cached);
+        // Only use cache less than 2 hours old
+        if (data.time && (Date.now() - data.time < 2 * 60 * 60 * 1000)) {
+          setBriefing(data.text || null);
+          setBriefingStructured(data.structured || null);
+          setBriefingRequested(true);
+        }
+      }
+    } catch {}
+  }, []);
 
+  const getElenaBriefing = useCallback(async () => {
     setBriefingLoading(true);
+    setBriefingRequested(true);
     try {
       const res = await api.briefing();
       const text = res.briefing || res.response;
       setBriefing(text);
       setBriefingStructured(res.structured || null);
-      window.__elenaBriefingCache = { text, structured: res.structured || null, time: Date.now() };
+      // Persist to localStorage so it survives reload
+      const cacheData = { text, structured: res.structured || null, time: Date.now() };
+      localStorage.setItem('corey-elena-briefing', JSON.stringify(cacheData));
     } catch (e) {
       const fallback = "Hey Corey — I'm having a moment connecting, but your portal is loaded with the latest from all your channels. Take a look at the tiles below to see what's waiting.";
       setBriefing(fallback);
     }
     setBriefingLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
     loadAllChannels();
-    getElenaBriefing();
   }, []);
 
   const totalItems = emailData.count + slackData.count + rcData.count + questions.length;
@@ -317,114 +330,151 @@ export default function Dashboard({ onNavigate }) {
               <LayoutList size={12} /> All
             </button>
           </div>
-          <button onClick={() => { loadAllChannels(); getElenaBriefing(true); }} className="text-surface-200/30 hover:text-white transition">
+          {/* Elena on/off toggle */}
+          <button
+            onClick={() => setElenaEnabled(prev => !prev)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+              elenaEnabled ? 'bg-brand-600/20 text-brand-400' : 'bg-surface-200/10 text-surface-200/40'
+            }`}
+            title={elenaEnabled ? 'Hide Elena insights' : 'Show Elena insights'}
+          >
+            {elenaEnabled ? <Eye size={12} /> : <EyeOff size={12} />}
+            Elena
+          </button>
+          <button onClick={() => { loadAllChannels(); if (briefingRequested) getElenaBriefing(); }} className="text-surface-200/30 hover:text-white transition">
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {/* Elena's Briefing */}
-      <div className="rounded-2xl bg-gradient-to-br from-brand-600/10 to-brand-900/20 border-2 border-brand-600/20 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-[#1a2e2d] flex items-center justify-center p-1.5">
-            <ElenaLogo size={28} />
-          </div>
-          <div>
-            <h2 className="font-bold text-brand-400">Elena</h2>
-            <p className="text-xs text-surface-200/40">Your briefing — just now</p>
-          </div>
-          <span className="ml-auto flex items-center gap-1 text-xs text-green-400">
-            <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> Live
-          </span>
-        </div>
-        {briefingLoading ? (
-          <div className="flex items-center gap-3 py-4">
-            <Loader size={18} className="animate-spin text-brand-500" />
-            <span className="text-surface-200/50 text-sm">Elena is checking everything...</span>
-          </div>
-        ) : briefingStructured ? (
-          <div className="space-y-4">
-            {/* Greeting */}
-            <p className="text-surface-200/80 text-sm leading-relaxed">{briefingStructured.greeting}</p>
-
-            {/* Urgent items */}
-            {briefingStructured.urgent?.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-bad uppercase tracking-wider">Needs Attention Now</p>
-                {briefingStructured.urgent.map((u, i) => (
-                  <div key={i} className="rounded-lg bg-bad/10 border border-bad/20 px-3 py-2">
-                    <p className="text-sm font-medium text-white">{u.label}</p>
-                    <p className="text-xs text-surface-200/60 mt-0.5">{u.detail}</p>
-                  </div>
-                ))}
-              </div>
+      {/* Elena's Briefing — only shown when enabled */}
+      {elenaEnabled && (
+        <div className="rounded-2xl bg-gradient-to-br from-brand-600/10 to-brand-900/20 border-2 border-brand-600/20 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-[#1a2e2d] flex items-center justify-center p-1.5">
+              <ElenaLogo size={28} />
+            </div>
+            <div>
+              <h2 className="font-bold text-brand-400">Elena</h2>
+              <p className="text-xs text-surface-200/40">
+                {briefingRequested && (briefing || briefingStructured) ? 'Your briefing' : 'Ready when you are'}
+              </p>
+            </div>
+            {briefingRequested && (briefing || briefingStructured) && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-green-400">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" /> Live
+              </span>
             )}
+          </div>
 
-            {/* Overview counters */}
-            {briefingStructured.overview && (
-              <div className="flex flex-wrap gap-3">
-                {briefingStructured.overview.emails > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
-                    <Mail size={11} /> {briefingStructured.overview.emails} emails
-                  </span>
-                )}
-                {briefingStructured.overview.texts > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
-                    <Phone size={11} /> {briefingStructured.overview.texts} texts
-                  </span>
-                )}
-                {briefingStructured.overview.missed_calls > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-xs text-amber-400">
-                    <Phone size={11} /> {briefingStructured.overview.missed_calls} missed
-                  </span>
-                )}
-                {briefingStructured.overview.team_questions > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
-                    <MessageSquare size={11} /> {briefingStructured.overview.team_questions} questions
-                  </span>
-                )}
-              </div>
-            )}
+          {/* Not yet requested — show button */}
+          {!briefingRequested && !briefingLoading ? (
+            <div className="flex flex-col items-center py-4 gap-3">
+              <button
+                onClick={getElenaBriefing}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-medium transition"
+              >
+                <Sparkles size={16} /> Get Briefing
+              </button>
+              <p className="text-xs text-surface-200/30">Elena will analyze your emails, texts, and messages</p>
+            </div>
+          ) : briefingLoading ? (
+            <div className="flex items-center gap-3 py-4">
+              <Loader size={18} className="animate-spin text-brand-500" />
+              <span className="text-surface-200/50 text-sm">Elena is checking everything...</span>
+            </div>
+          ) : briefingStructured ? (
+            <div className="space-y-4">
+              {/* Greeting */}
+              <p className="text-surface-200/80 text-sm leading-relaxed">{briefingStructured.greeting}</p>
 
-            {/* Item list */}
-            {briefingStructured.items?.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-surface-200/40 uppercase tracking-wider">On Your Plate</p>
-                {briefingStructured.items.map((item, i) => (
-                  <div key={i} className="flex items-start gap-2 py-1.5">
-                    <span className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${
-                      item.type === 'text' ? 'bg-green-400' :
-                      item.type === 'email' ? 'bg-blue-400' :
-                      item.type === 'call' ? 'bg-amber-400' :
-                      'bg-purple-400'
-                    }`} />
-                    <div>
-                      <span className="text-sm font-medium text-surface-200/80">{item.label}</span>
-                      <span className="text-sm text-surface-200/50 ml-1.5">— {item.detail}</span>
+              {/* Urgent items */}
+              {briefingStructured.urgent?.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-bad uppercase tracking-wider">Needs Attention Now</p>
+                  {briefingStructured.urgent.map((u, i) => (
+                    <div key={i} className="rounded-lg bg-bad/10 border border-bad/20 px-3 py-2">
+                      <p className="text-sm font-medium text-white">{u.label}</p>
+                      <p className="text-xs text-surface-200/60 mt-0.5">{u.detail}</p>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
 
-            {/* Next step */}
-            {briefingStructured.next_step && (
-              <div className="rounded-lg bg-brand-600/10 border border-brand-600/20 px-3 py-2.5">
-                <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">Start Here</p>
-                <p className="text-sm text-white font-medium leading-relaxed">{briefingStructured.next_step}</p>
-              </div>
-            )}
-          </div>
-        ) : briefing ? (
-          <p className="text-surface-200/80 leading-relaxed whitespace-pre-wrap">{briefing}</p>
-        ) : null}
-        <button
-          onClick={() => onNavigate?.('/assistant')}
-          className="mt-4 text-sm text-brand-500 hover:text-brand-400 flex items-center gap-1 transition"
-        >
-          Chat with Elena <ArrowRight size={14} />
-        </button>
-      </div>
+              {/* Overview counters */}
+              {briefingStructured.overview && (
+                <div className="flex flex-wrap gap-3">
+                  {briefingStructured.overview.emails > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
+                      <Mail size={11} /> {briefingStructured.overview.emails} emails
+                    </span>
+                  )}
+                  {briefingStructured.overview.texts > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
+                      <Phone size={11} /> {briefingStructured.overview.texts} texts
+                    </span>
+                  )}
+                  {briefingStructured.overview.missed_calls > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-xs text-amber-400">
+                      <Phone size={11} /> {briefingStructured.overview.missed_calls} missed
+                    </span>
+                  )}
+                  {briefingStructured.overview.team_questions > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-200/5 text-xs text-surface-200/60">
+                      <MessageSquare size={11} /> {briefingStructured.overview.team_questions} questions
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Item list */}
+              {briefingStructured.items?.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-surface-200/40 uppercase tracking-wider">On Your Plate</p>
+                  {briefingStructured.items.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2 py-1.5">
+                      <span className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${
+                        item.type === 'text' ? 'bg-green-400' :
+                        item.type === 'email' ? 'bg-blue-400' :
+                        item.type === 'call' ? 'bg-amber-400' :
+                        'bg-purple-400'
+                      }`} />
+                      <div>
+                        <span className="text-sm font-medium text-surface-200/80">{item.label}</span>
+                        <span className="text-sm text-surface-200/50 ml-1.5">— {item.detail}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Next step */}
+              {briefingStructured.next_step && (
+                <div className="rounded-lg bg-brand-600/10 border border-brand-600/20 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-brand-400 uppercase tracking-wider mb-1">Start Here</p>
+                  <p className="text-sm text-white font-medium leading-relaxed">{briefingStructured.next_step}</p>
+                </div>
+              )}
+
+              {/* Refresh briefing button */}
+              <button
+                onClick={getElenaBriefing}
+                className="text-xs text-surface-200/30 hover:text-brand-400 flex items-center gap-1 transition"
+              >
+                <RefreshCw size={10} /> Refresh briefing
+              </button>
+            </div>
+          ) : briefing ? (
+            <p className="text-surface-200/80 leading-relaxed whitespace-pre-wrap">{briefing}</p>
+          ) : null}
+          <button
+            onClick={() => onNavigate?.('/assistant')}
+            className="mt-4 text-sm text-brand-500 hover:text-brand-400 flex items-center gap-1 transition"
+          >
+            Chat with Elena <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Content: Focus mode or Bucket mode */}
       {viewMode === 'focus' ? (
@@ -435,6 +485,7 @@ export default function Dashboard({ onNavigate }) {
           questions={questions}
           onNavigate={onNavigate}
           onDismiss={(id) => setDismissedItems(prev => new Set(prev).add(id))}
+          elenaEnabled={elenaEnabled}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-focus-group>
