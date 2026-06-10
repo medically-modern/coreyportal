@@ -53,6 +53,15 @@ function ensureTables() {
     try { db.exec(`ALTER TABLE project_tasks ADD COLUMN ${col} ${def}`); } catch (e) { /* exists */ }
   }
   try { db.exec(`ALTER TABLE projects ADD COLUMN type TEXT DEFAULT 'personal'`); } catch (e) { /* exists */ }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_members (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+  `);
 }
 
 // ---- PROJECTS ----
@@ -149,7 +158,11 @@ router.get('/:id/board', (req, res) => {
       'SELECT * FROM project_tasks WHERE project_id = ? ORDER BY sort_order'
     ).all(req.params.id);
 
-    res.json({ project, columns, tasks });
+    const members = db.prepare(
+      'SELECT * FROM project_members WHERE project_id = ? ORDER BY name COLLATE NOCASE'
+    ).all(req.params.id);
+
+    res.json({ project, columns, tasks, members });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -273,6 +286,50 @@ router.post('/:projectId/tasks/:taskId/move', (req, res) => {
     ).run(column_id, sort_order || 0, req.params.taskId);
     const task = db.prepare('SELECT * FROM project_tasks WHERE id = ?').get(req.params.taskId);
     res.json({ task });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- TEAM MEMBERS ----
+
+router.get('/:id/members', (req, res) => {
+  try {
+    ensureTables();
+    const db = getDb();
+    const members = db.prepare('SELECT * FROM project_members WHERE project_id = ? ORDER BY name COLLATE NOCASE').all(req.params.id);
+    res.json({ members });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/members', (req, res) => {
+  try {
+    ensureTables();
+    const db = getDb();
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const existing = db.prepare('SELECT id FROM project_members WHERE project_id = ? AND name = ? COLLATE NOCASE').get(req.params.id, name);
+    if (existing) {
+      const members = db.prepare('SELECT * FROM project_members WHERE project_id = ? ORDER BY name COLLATE NOCASE').all(req.params.id);
+      return res.json({ members });
+    }
+    db.prepare('INSERT INTO project_members (project_id, name) VALUES (?, ?)').run(req.params.id, name);
+    const members = db.prepare('SELECT * FROM project_members WHERE project_id = ? ORDER BY name COLLATE NOCASE').all(req.params.id);
+    res.json({ members });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:projectId/members/:memberId', (req, res) => {
+  try {
+    ensureTables();
+    const db = getDb();
+    db.prepare('DELETE FROM project_members WHERE id = ? AND project_id = ?').run(req.params.memberId, req.params.projectId);
+    const members = db.prepare('SELECT * FROM project_members WHERE project_id = ? ORDER BY name COLLATE NOCASE').all(req.params.projectId);
+    res.json({ members });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

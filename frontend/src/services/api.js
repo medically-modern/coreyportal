@@ -88,4 +88,6 @@ export const api = {
   projectTaskDelete: (projectId, taskId) => request(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
   projectTaskMove: (projectId, taskId, data) => request(`/projects/${projectId}/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify(data) }),
   projectTaskBreakdown: (projectId, taskId) => request(`/projects/${projectId}/tasks/${taskId}/breakdown`, { method: 'POST' }),
+  projectMemberAdd: (projectId, name) => request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ name }) }),
+  projectMemberRemove: (projectId, memberId) => request(`/projects/${projectId}/members/${memberId}`, { method: 'DELETE' }),
 };

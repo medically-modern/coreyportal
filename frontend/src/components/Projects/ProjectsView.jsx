@@ -150,6 +150,74 @@ function AssigneePicker({ team, current, onPick, onClose }) {
   );
 }
 
+// ─── Team manager (company boards) ───────────────────────
+function TeamManager({ members, onAdd, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  function add(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onAdd(name.trim());
+    setName('');
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-dashed transition ${
+          open ? 'border-brand-500/40 text-brand-300 bg-brand-600/10' : 'border-surface-200/15 text-surface-200/40 hover:text-brand-400 hover:border-brand-500/30'
+        }`}
+      >
+        <UserPlus size={12} /> Team
+      </button>
+      {open && (
+        <div className="absolute left-0 top-8 bg-surface-800 border border-surface-200/20 rounded-xl shadow-xl shadow-black/40 p-2 z-40 w-60 animate-slide-up">
+          <p className="text-[10px] uppercase tracking-wider text-surface-200/30 font-semibold px-1 pb-1.5">Team members</p>
+          {members.length === 0 && (
+            <p className="text-xs text-surface-200/30 px-1 pb-2">No one yet — add your people below.</p>
+          )}
+          <div className="space-y-0.5 mb-2">
+            {members.map(m => (
+              <div key={m.id} className="group/member flex items-center gap-2 px-1.5 py-1 rounded-lg hover:bg-surface-200/5">
+                <Avatar name={m.name} size={18} />
+                <span className="flex-1 text-xs text-surface-200/80 truncate">{m.name}</span>
+                <button
+                  onClick={() => onRemove(m.id)}
+                  title={`Remove ${m.name} from this project`}
+                  className="opacity-0 group-hover/member:opacity-100 text-surface-200/30 hover:text-red-400 transition"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <form onSubmit={add} className="flex gap-1.5">
+            <input
+              autoFocus value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Add a person..."
+              className="flex-1 bg-surface-900/60 border border-surface-200/10 rounded-lg px-2 py-1.5 text-xs text-white placeholder-surface-200/25 outline-none focus:border-brand-500/40"
+            />
+            <button type="submit" disabled={!name.trim()}
+              className="px-2 py-1.5 bg-brand-600/20 text-brand-400 rounded-lg hover:bg-brand-600/30 disabled:opacity-30 transition">
+              <Plus size={13} />
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Confetti ────────────────────────────────────────────
 function ConfettiBurst({ onDone }) {
   useEffect(() => {
@@ -1033,6 +1101,7 @@ export default function ProjectsView() {
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [columns, setColumns] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [boardLoading, setBoardLoading] = useState(false);
   const [energyFilter, setEnergyFilter] = useState('all');
@@ -1070,6 +1139,7 @@ export default function ProjectsView() {
         const data = await api.projectBoard(activeProjectId);
         setColumns(data.columns);
         setTasks(data.tasks);
+        setMembers(data.members || []);
       } catch (err) {
         console.error('Failed to load board:', err);
       } finally {
@@ -1090,6 +1160,7 @@ export default function ProjectsView() {
       const data = await api.projectBoard(project.id);
       setColumns(data.columns);
       setTasks(data.tasks);
+      setMembers(data.members || []);
     } catch (err) { console.error('Create project error:', err); }
   }
 
@@ -1166,6 +1237,21 @@ export default function ProjectsView() {
     updateTask(taskId, { snoozed_until: until.toISOString() });
   }
 
+  // ── Team members ──
+  async function addMember(name) {
+    try {
+      const { members: list } = await api.projectMemberAdd(activeProjectId, name);
+      setMembers(list);
+    } catch (err) { console.error('Add member error:', err); }
+  }
+
+  async function removeMember(memberId) {
+    try {
+      const { members: list } = await api.projectMemberRemove(activeProjectId, memberId);
+      setMembers(list);
+    } catch (err) { console.error('Remove member error:', err); }
+  }
+
   // ── Focus mode ──
   const focusQueue = useMemo(() => rankTasks(tasks, columns), [tasks, columns]);
 
@@ -1185,9 +1271,10 @@ export default function ProjectsView() {
 
   // ── Derived ──
   const team = useMemo(() => {
-    const names = new Set(tasks.map(t => t.assignee).filter(Boolean));
-    return [...names].sort();
-  }, [tasks]);
+    const names = new Set(members.map(m => m.name));
+    tasks.forEach(t => { if (t.assignee) names.add(t.assignee); });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [members, tasks]);
 
   const peopleStats = useMemo(() => team.map(name => {
     const theirs = tasks.filter(t => t.assignee === name && !t.completed);
@@ -1304,6 +1391,8 @@ export default function ProjectsView() {
             </button>
           </div>
 
+          <TeamManager members={members} onAdd={addMember} onRemove={removeMember} />
+
           {peopleStats.map(p => (
             <button key={p.name}
               onClick={() => setPersonFilter(personFilter === p.name ? null : p.name)}
@@ -1364,7 +1453,7 @@ export default function ProjectsView() {
           <span className="text-surface-200/40 text-sm">Loading board...</span>
         </div>
       ) : isCompany && viewMode === 'people' ? (
-        <div className="flex gap-4 overflow-x-auto pb-4" data-focus-group>
+        <div className="flex gap-4 flex-wrap items-stretch pb-4 min-h-[55vh]" data-focus-group>
           {[...team, '__unassigned__'].map(person => {
             const personTasks = visibleTasks
               .filter(t => person === '__unassigned__' ? !t.assignee : t.assignee === person)
@@ -1388,7 +1477,7 @@ export default function ProjectsView() {
           })}
         </div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4" data-focus-group>
+        <div className="flex gap-4 flex-wrap items-stretch pb-4 min-h-[55vh]" data-focus-group>
           {columns.map(col => {
             const colTasks = visibleTasks
               .filter(t => t.column_id === col.id)
