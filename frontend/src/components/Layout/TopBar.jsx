@@ -4,7 +4,7 @@ import { Bell, Search } from 'lucide-react';
 export default function TopBar() {
   return (
     <header className="h-16 bg-surface-900 border-b border-surface-200/10 flex items-center justify-between px-6">
-      <div className="flex items-center gap-3 flex-1 max-w-md">
+      <div className="flex items-center gap-3 flex-1 max-w-2xl">
         <Search size={18} className="text-surface-200/40" />
         <input
           type="text"

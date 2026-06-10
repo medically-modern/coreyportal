@@ -294,7 +294,7 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
 
   return (
     <div className="fixed inset-0 bg-surface-900/97 backdrop-blur z-[80] flex flex-col items-center justify-start overflow-y-auto py-10 px-4">
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-3xl">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-2 text-surface-200/40 text-sm">
             <Target size={16} className="text-brand-400" />
@@ -750,7 +750,7 @@ function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onD
 
   return (
     <div
-      className={`flex-1 min-w-[260px] max-w-[340px] flex flex-col rounded-2xl transition-all ${
+      className={`flex-1 min-w-[280px] flex flex-col rounded-2xl transition-all ${
         dragOver ? 'bg-brand-600/10 ring-2 ring-brand-500/30' : 'bg-surface-900/30'
       }`}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -808,7 +808,7 @@ function PersonColumn({ person, tasks, columns, onUpdateTask, onDeleteTask, onFo
 
   return (
     <div
-      className={`flex-1 min-w-[260px] max-w-[340px] flex flex-col rounded-2xl transition-all ${
+      className={`flex-1 min-w-[280px] flex flex-col rounded-2xl transition-all ${
         dragOver ? 'bg-brand-600/10 ring-2 ring-brand-500/30' : 'bg-surface-900/30'
       }`}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}

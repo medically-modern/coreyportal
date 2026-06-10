@@ -35,7 +35,7 @@ function PortalLayout({ children }) {
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
       <div className={`transition-all duration-200 ${collapsed ? 'ml-16' : 'ml-56'}`}>
         <TopBar />
-        <main className="p-6 max-w-6xl">
+        <main className="p-6 w-full">
           {children}
         </main>
       </div>
