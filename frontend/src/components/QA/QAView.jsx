@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw } from 'lucide-react';
+import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw, Paperclip, Download, FileText } from 'lucide-react';
 import { api } from '../../services/api';
 
 const URGENCY_CONFIG = {
@@ -49,6 +49,9 @@ function QuestionCard({ q, onClick, onRestore }) {
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1"><User size={11} /> {q.from_name || 'Team'}</span>
           <span className="flex items-center gap-1"><Tag size={11} /> {q.tag || 'General'}</span>
+          {(q.attachments?.length > 0) && (
+            <span className="flex items-center gap-1 text-brand-400"><Paperclip size={11} /> {q.attachments.length}</span>
+          )}
         </div>
         {q.status === 'archived' && onRestore && (
           <button onClick={(e) => { e.stopPropagation(); onRestore(q.id); }}
@@ -63,6 +66,33 @@ function QuestionCard({ q, onClick, onRestore }) {
 
 function FocusModal({ question, onClose, onArchive }) {
   const u = getUrgency(question);
+  const [attachments, setAttachments] = useState(question.attachments || []);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+
+  function fmtSize(b) {
+    if (!b) return '';
+    if (b > 1024 * 1024) return `${(b / 1048576).toFixed(1)} MB`;
+    return `${Math.ceil(b / 1024)} KB`;
+  }
+
+  async function handleUpload(fileList) {
+    if (!fileList.length) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const { attachments: added } = await api.qaUploadAttachments(question.id, fileList, 'corey');
+      setAttachments(prev => [...prev, ...added]);
+    } catch (e) {
+      setUploadError(e.message || 'Upload failed');
+    }
+    setUploading(false);
+  }
+
+  async function handleDeleteAttachment(attId) {
+    setAttachments(prev => prev.filter(a => a.id !== attId));
+    try { await api.qaDeleteAttachment(attId); } catch (e) { console.error(e); }
+  }
 
 
 
@@ -134,6 +164,49 @@ function FocusModal({ question, onClose, onArchive }) {
             </div>
           )}
 
+
+          {/* Attachments */}
+          <div>
+            <p className="text-xs text-surface-200/30 mb-2 uppercase tracking-wider font-medium flex items-center gap-1">
+              <Paperclip size={11} /> Attachments {attachments.length > 0 && `(${attachments.length})`}
+            </p>
+            {attachments.length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {attachments.map(att => (
+                  <div key={att.id} className="group flex items-center gap-2 bg-surface-200/5 hover:bg-surface-200/10 rounded-lg px-3 py-2 text-sm transition">
+                    <FileText size={14} className="text-brand-400 shrink-0" />
+                    <a
+                      href={api.qaAttachmentUrl(att.id)}
+                      target="_blank" rel="noreferrer"
+                      className="flex-1 truncate text-surface-200/80 hover:text-white hover:underline"
+                      title={`Download ${att.original_name}`}
+                    >
+                      {att.original_name}
+                    </a>
+                    <span className="text-xs text-surface-200/30">{fmtSize(att.size)}</span>
+                    {att.uploaded_by === 'corey' && <span className="text-[10px] text-surface-200/25">you</span>}
+                    <a href={api.qaAttachmentUrl(att.id)} className="text-surface-200/30 hover:text-brand-400 transition" title="Download">
+                      <Download size={13} />
+                    </a>
+                    <button onClick={() => handleDeleteAttachment(att.id)}
+                      className="opacity-0 group-hover:opacity-100 text-surface-200/30 hover:text-red-400 transition" title="Delete attachment">
+                      <X size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label className="inline-flex items-center gap-1.5 text-xs text-surface-200/40 hover:text-brand-400 cursor-pointer transition">
+              {uploading ? <Loader size={12} className="animate-spin" /> : <Paperclip size={12} />}
+              {uploading ? 'Uploading...' : 'Attach files'}
+              <input
+                type="file" multiple className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.heic,.gif"
+                onChange={e => { handleUpload([...e.target.files]); e.target.value = ''; }}
+              />
+            </label>
+            {uploadError && <p className="text-xs text-urgent mt-1">{uploadError}</p>}
+          </div>
 
           {/* Archive */}
           <button onClick={() => onArchive(question.id)}

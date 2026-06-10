@@ -49,6 +49,19 @@ export const api = {
 
   // Q&A
   questions: (status = 'pending') => request(`/qa/questions?status=${status}`),
+  qaUploadAttachments: async (questionId, files, uploadedBy = 'employee') => {
+    const fd = new FormData();
+    [...files].forEach(f => fd.append('files', f));
+    fd.append('uploaded_by', uploadedBy);
+    const res = await fetch(`${API_BASE}/qa/questions/${questionId}/attachments`, { method: 'POST', body: fd });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Upload failed');
+    }
+    return res.json();
+  },
+  qaAttachmentUrl: (attachmentId) => `${API_BASE}/qa/attachments/${attachmentId}/download`,
+  qaDeleteAttachment: (attachmentId) => request(`/qa/attachments/${attachmentId}`, { method: 'DELETE' }),
   submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
   answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
 

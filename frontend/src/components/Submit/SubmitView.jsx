@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, CheckCircle2, AlertTriangle, Loader } from 'lucide-react';
+import { Send, CheckCircle2, AlertTriangle, Loader, Paperclip, X, FileText } from 'lucide-react';
 import { api } from '../../services/api';
 
 const URGENCY_LEVELS = [
@@ -35,6 +35,17 @@ export default function SubmitView() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
+  const [files, setFiles] = useState([]);
+
+  function addFiles(list) {
+    const next = [...files, ...list].slice(0, 5);
+    setFiles(next);
+  }
+
+  function fmtSize(b) {
+    if (b > 1024 * 1024) return `${(b / 1048576).toFixed(1)} MB`;
+    return `${Math.ceil(b / 1024)} KB`;
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -45,7 +56,7 @@ export default function SubmitView() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.submitQuestion({
+      const result = await api.submitQuestion({
         from: form.from.trim(),
         headline: form.headline.trim(),
         question: form.question.trim(),
@@ -54,7 +65,16 @@ export default function SubmitView() {
         context: form.context.trim(),
         patient_name: form.patient_name.trim(),
       });
+      if (files.length > 0 && result?.id) {
+        try {
+          await api.qaUploadAttachments(result.id, files, 'employee');
+        } catch (upErr) {
+          console.error('Attachment upload failed:', upErr);
+          setError('Your question was submitted, but the attachments failed to upload. You can reply to Corey with the files directly.');
+        }
+      }
       setSubmitted(true);
+      setFiles([]);
       setForm({ from: '', question: '', category: '', urgency: 'medium', headline: '', context: '', patient_name: '' });
     } catch (e) {
       setError('Failed to submit. Please try again or message Corey directly.');
@@ -192,6 +212,39 @@ export default function SubmitView() {
               placeholder="Any background info, related tickets, etc."
               className="input w-full h-20 resize-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Attachments <span className="text-surface-200/30">(optional — PDFs, documents, screenshots; up to 5 files, 15 MB each)</span>
+            </label>
+            <label className="flex items-center justify-center gap-2 border-2 border-dashed border-surface-200/15 hover:border-brand-500/40 rounded-xl px-4 py-5 cursor-pointer text-surface-200/40 hover:text-brand-400 transition"
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); addFiles([...e.dataTransfer.files]); }}
+            >
+              <Paperclip size={16} />
+              <span className="text-sm">Click to attach files, or drag them here</span>
+              <input
+                type="file" multiple className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.heic,.gif"
+                onChange={e => { addFiles([...e.target.files]); e.target.value = ''; }}
+              />
+            </label>
+            {files.length > 0 && (
+              <div className="mt-2 space-y-1.5">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-surface-800 border border-surface-200/10 rounded-lg px-3 py-2 text-sm">
+                    <FileText size={14} className="text-brand-400 shrink-0" />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <span className="text-xs text-surface-200/30">{fmtSize(f.size)}</span>
+                    <button type="button" onClick={() => setFiles(files.filter((_, idx) => idx !== i))}
+                      className="text-surface-200/30 hover:text-red-400 transition">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {error && (
