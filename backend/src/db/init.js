@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.NODE_ENV === 'production'
+export const DB_PATH = process.env.NODE_ENV === 'production'
   ? '/data/portal.db'
   : join(__dirname, '..', '..', 'data', 'portal.db');
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { getDb } from '../db/init.js';
+import { getDb, DB_PATH } from '../db/init.js';
+import { statSync } from 'fs';
 import { oneShot } from '../services/claude.js';
 
 const router = Router();
@@ -63,6 +64,27 @@ function ensureTables() {
     );
   `);
 }
+
+// ---- DEBUG (temporary) ----
+router.get('/_debug', (req, res) => {
+  try {
+    ensureTables();
+    const db = getDb();
+    let fileStat = null;
+    try { const st = statSync(DB_PATH); fileStat = { size: st.size, mtime: st.mtime, birthtime: st.birthtime }; } catch (e) { fileStat = { error: e.message }; }
+    res.json({
+      dbPath: DB_PATH,
+      nodeEnv: process.env.NODE_ENV,
+      sqliteFiles: db.pragma('database_list'),
+      fileStat,
+      projectsAll: db.prepare('SELECT id, name, type, archived, created_at FROM projects').all(),
+      taskCount: db.prepare('SELECT COUNT(*) as c FROM project_tasks').get().c,
+      memberCount: db.prepare('SELECT COUNT(*) as c FROM project_members').get().c,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ---- PROJECTS ----
 
