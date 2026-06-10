@@ -8,6 +8,7 @@ import {
   User, Users, UserPlus, Columns3
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { isPastDueET, daysFromTodayET, dateOnlyToDate, fmtDateET, etDayKey } from '../../utils/time';
 
 const PROJECT_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
@@ -43,7 +44,8 @@ function isSnoozed(task) {
 }
 
 function isOverdue(task) {
-  return task.due_date && new Date(task.due_date) < new Date() && !task.completed;
+  // Due dates are ET calendar dates — overdue only once the day has ended in ET
+  return task.due_date && isPastDueET(task.due_date) && !task.completed;
 }
 
 function isStale(task) {
@@ -55,14 +57,14 @@ function isStale(task) {
 
 function dueLabel(task) {
   if (!task.due_date) return null;
-  const due = new Date(task.due_date);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.round((due - today) / 86400000);
+  const diff = daysFromTodayET(task.due_date);
+  if (diff === null) return null;
   if (diff < 0) return `${Math.abs(diff)}d overdue`;
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
-  if (diff < 7) return due.toLocaleDateString('en-US', { weekday: 'short' });
-  return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const due = dateOnlyToDate(task.due_date);
+  if (diff < 7) return fmtDateET(due, { weekday: 'short' });
+  return fmtDateET(due, { month: 'short', day: 'numeric' });
 }
 
 function initialsOf(name) {
@@ -85,8 +87,8 @@ function rankTasks(tasks, columns) {
       let score = priWeight[t.priority] ?? 10;
       if (isOverdue(t)) score += 1000;
       if (t.due_date) {
-        const days = (new Date(t.due_date) - Date.now()) / 86400000;
-        if (days >= 0 && days <= 2) score += 200;
+        const days = daysFromTodayET(t.due_date);
+        if (days !== null && days >= 0 && days <= 2) score += 200;
       }
       score += Math.min(30, (Date.now() - new Date((t.created_at || '').replace(' ', 'T') + 'Z').getTime()) / 86400000);
       return { task: t, score };
@@ -1295,8 +1297,7 @@ export default function ProjectsView() {
   const overdueTasks = tasks.filter(t => isOverdue(t) && !isSnoozed(t));
   const completedToday = useMemo(() => tasks.filter(t => {
     if (!t.completed) return false;
-    const d = new Date((t.updated_at || '').replace(' ', 'T') + 'Z');
-    return d.toDateString() === new Date().toDateString();
+    return etDayKey(((t.updated_at || '').replace(' ', 'T') + 'Z')) === etDayKey();
   }).length, [tasks]);
   const doneCount = Math.max(doneToday, completedToday);
 

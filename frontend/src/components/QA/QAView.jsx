@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw, Paperclip, Download, FileText } from 'lucide-react';
 import { api } from '../../services/api';
+import { timeAgo } from '../../utils/time';
 
 const URGENCY_CONFIG = {
   emergency:  { label: 'EMERGENCY', bg: 'bg-red-700',       border: 'border-red-700',       text: 'text-red-100',    dot: 'bg-red-500',    glow: 'shadow-lg shadow-red-500/20',    order: 0 },
@@ -16,19 +17,7 @@ function getUrgency(q) {
   return URGENCY_CONFIG[q.priority || q.urgency || 'normal'] || URGENCY_CONFIG.normal;
 }
 
-function timeAgo(dateStr) {
-  if (!dateStr) return '';
-  // SQLite stores UTC without a timezone marker — parse it as UTC, not local
-  const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)
-    ? new Date(dateStr.replace(' ', 'T') + 'Z')
-    : new Date(dateStr);
-  const diff = Date.now() - utc.getTime();
-  const mins = Math.max(0, Math.floor(diff / 60000));
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+
 
 function QuestionCard({ q, onClick, onRestore }) {
   const u = getUrgency(q);

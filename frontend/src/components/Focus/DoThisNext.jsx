@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipForward, CheckCircle2, AlarmClock, Loader, X, Send, Eraser, MessageCircle, ExternalLink, ArrowDown, ArrowUp, Sparkles } from 'lucide-react';
 import { api } from '../../services/api';
 import ElenaLogo from '../shared/ElenaLogo';
+import { fmtSmartET } from '../../utils/time';
 
 // ── Elena take cache (localStorage) ──
 const TAKE_CACHE_KEY = 'corey-elena-takes';
@@ -112,15 +113,7 @@ function ConversationPanel({ phoneNumber, onClose }) {
   }, [messages]);
 
   function formatTime(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const now = new Date();
-    const diffDays = Math.floor((now - d) / 86400000);
-    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    if (diffDays === 0) return `Today ${time}`;
-    if (diffDays === 1) return `Yesterday ${time}`;
-    if (diffDays < 7) return `${d.toLocaleDateString([], { weekday: 'short' })} ${time}`;
-    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+    return fmtSmartET(iso);
   }
 
   return (

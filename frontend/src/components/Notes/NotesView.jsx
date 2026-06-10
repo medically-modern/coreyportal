@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StickyNote, Plus, Trash2, Pin, PinOff, Search, Filter, X, Check, Loader } from 'lucide-react';
 import { api } from '../../services/api';
+import { timeAgo, parseDate, fmtDateET } from '../../utils/time';
 
 const COLORS = [
   { id: 'gray', bg: 'bg-surface-200/10', border: 'border-surface-200/20', dot: 'bg-surface-200/40', label: 'None', ring: 'ring-surface-200/30' },
@@ -17,13 +18,10 @@ function getColor(id) {
 
 function formatTime(ts) {
   if (!ts) return '';
-  const d = new Date(ts);
+  const d = parseDate(ts);
   const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-  return d.toLocaleDateString();
+  if (diff < 604800000) return timeAgo(d);
+  return fmtDateET(d);
 }
 
 function normalize(n) {

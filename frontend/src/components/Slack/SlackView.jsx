@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Hash, Search, RefreshCw, Loader, MessageSquare, ChevronRight } from 'lucide-react';
 import { api } from '../../services/api';
+import { timeAgo } from '../../utils/time';
 
-function timeAgo(ts) {
+function _unused_timeAgo(ts) {
   if (!ts) return '';
   const date = typeof ts === 'number' || /^\d+\.\d+$/.test(ts) ? new Date(parseFloat(ts) * 1000) : new Date(ts);
   const diff = Date.now() - date.getTime();

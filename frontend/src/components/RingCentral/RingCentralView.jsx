@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Phone, RefreshCw, Loader, MessageSquare, Sparkles, ChevronRight, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
+import { timeAgo } from '../../utils/time';
 
-function timeAgo(dateStr) {
+function _unused_timeAgo(dateStr) {
   if (!dateStr) return '';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
