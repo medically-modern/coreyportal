@@ -10,7 +10,7 @@ const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/gmail', icon: Mail, label: 'Email' },
   { to: '/ringcentral', icon: Phone, label: 'Texts & Calls' },
-  { to: '/slack', icon: MessageSquare, label: 'Slack' },
+  // { to: '/slack', icon: MessageSquare, label: 'Slack' },  // hidden per Corey's request
   { to: '/questions', icon: HelpCircle, label: 'Team Questions' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/notes', icon: StickyNote, label: 'Parking Lot' },

@@ -7,7 +7,7 @@ import Dashboard from './components/Dashboard/Dashboard';
 import GmailView from './components/Gmail/GmailView';
 import QAView from './components/QA/QAView';
 import RingCentralView from './components/RingCentral/RingCentralView';
-import SlackView from './components/Slack/SlackView';
+// import SlackView from './components/Slack/SlackView';  // hidden per Corey's request
 import AssistantView from './components/Assistant/AssistantView';
 import ProjectsView from './components/Projects/ProjectsView';
 import NotesView from './components/Notes/NotesView';
@@ -67,7 +67,7 @@ export default function App() {
             <Route path="/gmail" element={<GmailView />} />
             <Route path="/questions" element={<QAView />} />
             <Route path="/ringcentral" element={<RingCentralView />} />
-            <Route path="/slack" element={<SlackView />} />
+            {/* <Route path="/slack" element={<SlackView />} /> */}
             <Route path="/projects" element={<ProjectsView />} />
             <Route path="/notes" element={<NotesView />} />
             <Route path="/assistant" element={<AssistantView />} />
