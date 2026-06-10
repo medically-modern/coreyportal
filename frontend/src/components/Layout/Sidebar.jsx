@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, MessageSquare, Phone,
-  ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote
+  ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote, Trash2
 } from 'lucide-react';
 import ElenaLogo from '../shared/ElenaLogo';
 
@@ -14,6 +14,7 @@ const NAV = [
   { to: '/questions', icon: HelpCircle, label: 'Team Questions' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/notes', icon: StickyNote, label: 'Parking Lot' },
+  { to: '/trash', icon: Trash2, label: 'Trash' },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {

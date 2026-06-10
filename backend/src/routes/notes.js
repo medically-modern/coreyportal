@@ -23,6 +23,7 @@ function ensureTable() {
   try { db.exec('ALTER TABLE parking_lot ADD COLUMN color TEXT DEFAULT \'gray\''); } catch {}
   try { db.exec('ALTER TABLE parking_lot ADD COLUMN pinned INTEGER DEFAULT 0'); } catch {}
   try { db.exec('ALTER TABLE parking_lot ADD COLUMN updated_at TEXT'); } catch {}
+  try { db.exec('ALTER TABLE parking_lot ADD COLUMN deleted_at TEXT'); } catch {}
   tableReady = true;
 }
 
@@ -89,7 +90,7 @@ router.delete('/:id', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    db.prepare('UPDATE parking_lot SET archived = 1 WHERE id = ?').run(req.params.id);
+    db.prepare("UPDATE parking_lot SET archived = 1, deleted_at = datetime('now') WHERE id = ?").run(req.params.id);
     res.json({ ok: true });
   } catch (e) {
     console.error('Notes DELETE error:', e);

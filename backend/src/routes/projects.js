@@ -53,6 +53,8 @@ function ensureTables() {
     try { db.exec(`ALTER TABLE project_tasks ADD COLUMN ${col} ${def}`); } catch (e) { /* exists */ }
   }
   try { db.exec(`ALTER TABLE projects ADD COLUMN type TEXT DEFAULT 'personal'`); } catch (e) { /* exists */ }
+  try { db.exec(`ALTER TABLE projects ADD COLUMN deleted_at TEXT DEFAULT NULL`); } catch (e) { /* exists */ }
+  try { db.exec(`ALTER TABLE project_tasks ADD COLUMN deleted_at TEXT DEFAULT NULL`); } catch (e) { /* exists */ }
   db.exec(`
     CREATE TABLE IF NOT EXISTS project_members (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +121,7 @@ router.delete('/:id', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
-    db.prepare('UPDATE projects SET archived = 1 WHERE id = ?').run(req.params.id);
+    db.prepare("UPDATE projects SET archived = 1, deleted_at = datetime('now') WHERE id = ?").run(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -155,7 +157,7 @@ router.get('/:id/board', (req, res) => {
     ).all(req.params.id);
 
     const tasks = db.prepare(
-      'SELECT * FROM project_tasks WHERE project_id = ? ORDER BY sort_order'
+      'SELECT * FROM project_tasks WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_order'
     ).all(req.params.id);
 
     const members = db.prepare(
@@ -268,7 +270,8 @@ router.delete('/:projectId/tasks/:taskId', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
-    db.prepare('DELETE FROM project_tasks WHERE id = ?').run(req.params.taskId);
+    // Soft delete — task goes to the Trash, restorable from there
+    db.prepare("UPDATE project_tasks SET deleted_at = datetime('now') WHERE id = ?").run(req.params.taskId);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

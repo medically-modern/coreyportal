@@ -49,12 +49,13 @@ try {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  try { getDb().exec("ALTER TABLE question_attachments ADD COLUMN deleted_at TEXT DEFAULT NULL"); } catch (e) { /* exists */ }
 } catch (e) { console.error('attachments table error:', e.message); }
 
 function attachmentsFor(db, questionIds) {
   if (!questionIds.length) return {};
   const placeholders = questionIds.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT id, question_id, original_name, mime, size, uploaded_by, created_at FROM question_attachments WHERE question_id IN (${placeholders})`).all(...questionIds);
+  const rows = db.prepare(`SELECT id, question_id, original_name, mime, size, uploaded_by, created_at FROM question_attachments WHERE deleted_at IS NULL AND question_id IN (${placeholders})`).all(...questionIds);
   const map = {};
   rows.forEach(r => { (map[r.question_id] = map[r.question_id] || []).push(r); });
   return map;
@@ -177,14 +178,13 @@ router.get('/attachments/:id/download', (req, res) => {
   }
 });
 
-// Delete an attachment
+// Delete an attachment (soft — goes to Trash; file stays on disk until Trash is emptied)
 router.delete('/attachments/:id', (req, res) => {
   try {
     const db = getDb();
     const att = db.prepare('SELECT * FROM question_attachments WHERE id = ?').get(req.params.id);
     if (!att) return res.status(404).json({ error: 'Not found' });
-    try { unlinkSync(join(UPLOAD_DIR, att.stored_name)); } catch (e) { /* file already gone */ }
-    db.prepare('DELETE FROM question_attachments WHERE id = ?').run(req.params.id);
+    db.prepare("UPDATE question_attachments SET deleted_at = datetime('now') WHERE id = ?").run(req.params.id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

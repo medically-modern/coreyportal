@@ -11,6 +11,7 @@ import RingCentralView from './components/RingCentral/RingCentralView';
 import AssistantView from './components/Assistant/AssistantView';
 import ProjectsView from './components/Projects/ProjectsView';
 import NotesView from './components/Notes/NotesView';
+import TrashView from './components/Trash/TrashView';
 import SubmitView from './components/Submit/SubmitView';
 import ParkingLot from './components/Focus/ParkingLot';
 import HyperfocusGuard from './components/Focus/HyperfocusGuard';
@@ -70,6 +71,7 @@ export default function App() {
             {/* <Route path="/slack" element={<SlackView />} /> */}
             <Route path="/projects" element={<ProjectsView />} />
             <Route path="/notes" element={<NotesView />} />
+            <Route path="/trash" element={<TrashView />} />
             <Route path="/assistant" element={<AssistantView />} />
           </Routes>
         </PortalLayout>

@@ -84,6 +84,12 @@ export const api = {
   focusContext: (item) => request('/assistant/focus-context', { method: 'POST', body: JSON.stringify({ item }) }),
   draftReply: (data) => request('/assistant/draft-reply', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Trash
+  trashList: () => request('/trash'),
+  trashRestore: (type, id) => request('/trash/restore', { method: 'POST', body: JSON.stringify({ type, id }) }),
+  trashPurgeItem: (type, id) => request('/trash/item', { method: 'DELETE', body: JSON.stringify({ type, id }) }),
+  trashEmpty: () => request('/trash/empty', { method: 'POST' }),
+
   // Parking Lot notes
   notesGet: () => request('/notes'),
   notesCreate: (text, color) => request('/notes', { method: 'POST', body: JSON.stringify({ text, color }) }),

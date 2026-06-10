@@ -16,6 +16,7 @@ import contextRoutes from './routes/context.js';
 import ingestRoutes from './routes/ingest.js';
 import notesRoutes from './routes/notes.js';
 import projectRoutes from './routes/projects.js';
+import trashRoutes from './routes/trash.js';
 
 // RAG + Rules loaded dynamically — app works without them
 let initVectorStore, setupSchema, warmupEmbeddings, initRulesPool, setupRulesSchema, rulesRoutes;
@@ -67,6 +68,7 @@ app.use('/api/context', contextRoutes);
 app.use('/api/elena', ingestRoutes);
 app.use('/api/notes', notesRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/trash', trashRoutes);
 // Init DB and start
 initDb();
 
