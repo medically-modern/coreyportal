@@ -18,8 +18,12 @@ function getUrgency(q) {
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
+  // SQLite stores UTC without a timezone marker — parse it as UTC, not local
+  const utc = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)
+    ? new Date(dateStr.replace(' ', 'T') + 'Z')
+    : new Date(dateStr);
+  const diff = Date.now() - utc.getTime();
+  const mins = Math.max(0, Math.floor(diff / 60000));
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
@@ -281,7 +285,8 @@ export default function QAView() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-focus-group>
         {sorted.map((q, i) => (
-          <QuestionCard key={q.id || i} q={q} onClick={setFocused} />
+          <QuestionCard key={q.id || i} q={q} onClick={setFocused}
+            onRestore={async (id) => { await api.restoreQuestion(id); loadQuestions(); }} />
         ))}
       </div>
 

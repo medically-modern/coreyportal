@@ -64,6 +64,8 @@ export const api = {
   qaDeleteAttachment: (attachmentId) => request(`/qa/attachments/${attachmentId}`, { method: 'DELETE' }),
   submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
   answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
+  archiveQuestion: (id) => request(`/qa/questions/${id}/archive`, { method: 'POST' }),
+  restoreQuestion: (id) => request(`/qa/questions/${id}/restore`, { method: 'POST' }),
 
   // Assistant (Elena)
   chat: (message) => request('/assistant/chat', { method: 'POST', body: JSON.stringify({ message }) }),

@@ -8,9 +8,11 @@ import WhereWasI from '../Focus/WhereWasI';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
-  const date = typeof dateStr === 'number' || /^\d+\.\d+$/.test(dateStr) ? new Date(parseFloat(dateStr) * 1000) : new Date(dateStr);
+  const date = typeof dateStr === 'number' || /^\d+\.\d+$/.test(dateStr) ? new Date(parseFloat(dateStr) * 1000)
+    : /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr) ? new Date(dateStr.replace(' ', 'T') + 'Z')  // SQLite UTC
+    : new Date(dateStr);
   const diff = Date.now() - date.getTime();
-  const mins = Math.floor(diff / 60000);
+  const mins = Math.max(0, Math.floor(diff / 60000));
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
