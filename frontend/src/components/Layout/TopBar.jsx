@@ -13,10 +13,11 @@ export default function TopBar() {
         />
       </div>
       <div className="flex items-center gap-4">
+        {/* Bell removed per Corey's request (badge count was hardcoded anyway)
         <button className="relative text-surface-200/60 hover:text-white">
           <Bell size={20} />
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-urgent rounded-full text-[10px] flex items-center justify-center font-bold">3</span>
-        </button>
+        </button> */}
         <div className="w-8 h-8 bg-brand-700 rounded-full flex items-center justify-center text-sm font-bold">C</div>
       </div>
     </header>

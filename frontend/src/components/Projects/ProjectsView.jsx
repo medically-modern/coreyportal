@@ -4,7 +4,8 @@ import {
   CheckCircle2, Clock, Zap, AlertTriangle, MoreHorizontal,
   X, FolderKanban, Sparkles, Edit3, Calendar, Target,
   Moon, Sun, Battery, BatteryLow, BatteryFull, Timer,
-  SkipForward, Wand2, ListChecks, Eye, EyeOff, Flame, Pencil
+  SkipForward, Wand2, ListChecks, Eye, EyeOff, Flame, Pencil,
+  User, Users, UserPlus, Columns3
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -64,6 +65,16 @@ function dueLabel(task) {
   return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function initialsOf(name) {
+  return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+function colorFor(name) {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 9973;
+  return PROJECT_COLORS[h % PROJECT_COLORS.length];
+}
+
 // Rank tasks for "What now?" — overdue first, then urgency, then due date, then oldest
 function rankTasks(tasks, columns) {
   const doneColIds = columns.filter(c => /done|complete/i.test(c.name)).map(c => c.id);
@@ -82,6 +93,61 @@ function rankTasks(tasks, columns) {
     })
     .sort((a, b) => b.score - a.score)
     .map(x => x.task);
+}
+
+// ─── Avatar ──────────────────────────────────────────────
+function Avatar({ name, size = 18 }) {
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-full font-bold text-white shrink-0"
+      style={{ width: size, height: size, backgroundColor: colorFor(name), fontSize: size * 0.42 }}
+      title={name}
+    >
+      {initialsOf(name)}
+    </span>
+  );
+}
+
+// ─── Assignee picker popover ─────────────────────────────
+function AssigneePicker({ team, current, onPick, onClose }) {
+  const [value, setValue] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose(); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [onClose]);
+
+  function pick(name) { onPick(name); onClose(); }
+
+  return (
+    <div ref={ref} className="absolute left-0 top-6 bg-surface-800 border border-surface-200/20 rounded-lg shadow-xl shadow-black/40 py-1.5 z-30 w-48 animate-slide-up">
+      <form
+        onSubmit={e => { e.preventDefault(); if (value.trim()) pick(value.trim()); }}
+        className="px-2 pb-1.5"
+      >
+        <input
+          autoFocus value={value}
+          onChange={e => setValue(e.target.value)}
+          placeholder="Type a name..."
+          className="w-full bg-surface-900/60 border border-surface-200/10 rounded-md px-2 py-1 text-xs text-white placeholder-surface-200/25 outline-none focus:border-brand-500/40"
+        />
+      </form>
+      {team.filter(n => !value || n.toLowerCase().includes(value.toLowerCase())).map(n => (
+        <button key={n} onClick={() => pick(n)}
+          className="w-full text-left px-2.5 py-1.5 text-xs text-surface-200/70 hover:bg-surface-200/10 flex items-center gap-2">
+          <Avatar name={n} size={16} /> {n}
+        </button>
+      ))}
+      {current && (
+        <button onClick={() => pick(null)}
+          className="w-full text-left px-2.5 py-1.5 text-xs text-surface-200/40 hover:bg-surface-200/10 flex items-center gap-2 border-t border-surface-200/10 mt-1">
+          <X size={12} /> Unassign
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ─── Confetti ────────────────────────────────────────────
@@ -126,8 +192,7 @@ function SubtaskList({ task, onUpdate, big = false }) {
     onUpdate(task.id, { subtasks: JSON.stringify(next) });
   }
   function toggle(i) {
-    const next = subs.map((s, idx) => idx === i ? { ...s, done: !s.done } : s);
-    setSubs(next);
+    setSubs(subs.map((s, idx) => idx === i ? { ...s, done: !s.done } : s));
   }
   function remove(i) {
     setSubs(subs.filter((_, idx) => idx !== i));
@@ -178,7 +243,6 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    // reset timer state when the task changes
     setSecondsLeft(null); setTotalSeconds(null); setTimeUp(false);
     clearInterval(intervalRef.current);
   }, [task?.id]);
@@ -231,7 +295,6 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
   return (
     <div className="fixed inset-0 bg-surface-900/97 backdrop-blur z-[80] flex flex-col items-center justify-start overflow-y-auto py-10 px-4">
       <div className="w-full max-w-2xl">
-        {/* Top bar */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-2 text-surface-200/40 text-sm">
             <Target size={16} className="text-brand-400" />
@@ -242,12 +305,16 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
           </button>
         </div>
 
-        {/* The ONE task */}
         <div className={`rounded-3xl border p-8 mb-6 ${timeUp ? 'border-amber-500/50 bg-amber-500/5' : 'border-surface-200/15 bg-surface-800/60'}`}>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${pri.bg} ${pri.color}`}>
               <pri.icon size={11} /> {pri.label}
             </span>
+            {task.assignee && (
+              <span className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded bg-surface-200/5 text-surface-200/60">
+                <Avatar name={task.assignee} size={14} /> {task.assignee}
+              </span>
+            )}
             {task.due_date && (
               <span className={`text-xs px-2 py-0.5 rounded ${isOverdue(task) ? 'bg-red-500/20 text-red-400' : 'bg-surface-200/5 text-surface-200/40'}`}>
                 <Calendar size={10} className="inline mr-1" />{dueLabel(task)}
@@ -258,7 +325,6 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
           <h1 className="text-3xl font-bold text-white leading-tight mb-4">{task.title}</h1>
           {task.description && <p className="text-surface-200/50 text-sm mb-4 whitespace-pre-wrap">{task.description}</p>}
 
-          {/* Subtasks */}
           {subs.length > 0 && (
             <div className="mb-2 text-xs text-surface-200/40">{doneSubs}/{subs.length} steps</div>
           )}
@@ -276,7 +342,6 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
           )}
         </div>
 
-        {/* Timer */}
         <div className="flex items-center justify-center gap-6 mb-8">
           {secondsLeft === null ? (
             <div className="flex items-center gap-3">
@@ -323,7 +388,6 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
           )}
         </div>
 
-        {/* Actions */}
         <div className="flex items-center justify-center gap-3 flex-wrap">
           <button
             onClick={() => onComplete(task.id)}
@@ -349,8 +413,8 @@ function FocusOverlay({ queue, queueIndex, onNext, onClose, onUpdate, onComplete
   );
 }
 
-// ─── Brain Dump bar ──────────────────────────────────────
-function BrainDump({ onAdd }) {
+// ─── Add To Do bar ───────────────────────────────────────
+function AddToDo({ onAdd }) {
   const [value, setValue] = useState('');
   const [flash, setFlash] = useState(false);
   const inputRef = useRef(null);
@@ -370,16 +434,16 @@ function BrainDump({ onAdd }) {
       <div className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all ${
         flash ? 'border-good/60 bg-good/5' : 'border-brand-500/30 bg-surface-800/80 focus-within:border-brand-500/60 focus-within:shadow-lg focus-within:shadow-brand-600/10'
       }`}>
-        <Sparkles size={18} className={flash ? 'text-good' : 'text-brand-400'} />
+        <Plus size={18} className={flash ? 'text-good' : 'text-brand-400'} />
         <input
           ref={inputRef}
           value={value}
           onChange={e => setValue(e.target.value)}
-          placeholder="Brain dump — get it out of your head, hit Enter, keep moving..."
+          placeholder="Add a to do — type it, hit Enter, it's on the board..."
           className="flex-1 bg-transparent text-white placeholder-surface-200/30 outline-none text-sm"
         />
         {flash ? (
-          <span className="text-xs text-good font-medium animate-slide-up">Captured ✓</span>
+          <span className="text-xs text-good font-medium animate-slide-up">Added ✓</span>
         ) : value.trim() ? (
           <kbd className="text-[10px] text-surface-200/30 border border-surface-200/15 rounded px-1.5 py-0.5">↵</kbd>
         ) : null}
@@ -389,12 +453,13 @@ function BrainDump({ onAdd }) {
 }
 
 // ─── Task Card ───────────────────────────────────────────
-function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
+function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze, isCompany, team, statusLabel }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [showMenu, setShowMenu] = useState(false);
   const [showDesc, setShowDesc] = useState(false);
   const [showSubs, setShowSubs] = useState(false);
+  const [showAssign, setShowAssign] = useState(false);
   const [desc, setDesc] = useState(task.description || '');
   const pri = PRIORITY_META[task.priority] || PRIORITY_META.normal;
   const energy = ENERGY_META[task.energy] || ENERGY_META.normal;
@@ -429,6 +494,7 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
       onDragStart={(e) => {
         e.dataTransfer.setData('taskId', String(task.id));
         e.dataTransfer.setData('fromColumn', String(task.column_id));
+        e.dataTransfer.setData('fromAssignee', task.assignee || '');
       }}
       className={`group relative bg-surface-800 border rounded-xl p-3 cursor-grab active:cursor-grabbing transition-all hover:border-surface-200/30 ${
         task.completed ? 'opacity-40 border-surface-200/5'
@@ -461,7 +527,6 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
             </p>
           )}
 
-          {/* Subtask progress bar */}
           {subs.length > 0 && (
             <button onClick={() => setShowSubs(!showSubs)} className="w-full mt-1.5 group/prog">
               <div className="flex items-center gap-2">
@@ -476,19 +541,69 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
 
           {/* Chips */}
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {/* Who — company boards lead with the person */}
+            {isCompany && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowAssign(!showAssign)}
+                  title={task.assignee ? `Assigned to ${task.assignee} — click to change` : 'Assign to someone'}
+                  className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition hover:opacity-80 ${
+                    task.assignee ? 'bg-surface-200/10 text-white font-medium' : 'bg-surface-200/5 text-surface-200/30 border border-dashed border-surface-200/15'
+                  }`}
+                >
+                  {task.assignee ? (<><Avatar name={task.assignee} size={13} /> {task.assignee}</>) : (<><UserPlus size={10} /> assign</>)}
+                </button>
+                {showAssign && (
+                  <AssigneePicker
+                    team={team || []}
+                    current={task.assignee}
+                    onPick={(name) => onUpdate(task.id, { assignee: name })}
+                    onClose={() => setShowAssign(false)}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* When — company boards always show a due slot */}
+            {task.due_date ? (
+              <button
+                onClick={() => {
+                  const date = prompt('Due date (YYYY-MM-DD), or blank to clear:', task.due_date?.slice(0, 10) || '');
+                  if (date !== null) onUpdate(task.id, { due_date: date || null });
+                }}
+                className={`text-[10px] px-1.5 py-0.5 rounded transition hover:opacity-80 ${overdue ? 'bg-red-500/20 text-red-400 font-semibold' : isCompany ? 'bg-blue-500/10 text-blue-300' : 'bg-surface-200/5 text-surface-200/40'}`}
+              >
+                <Calendar size={8} className="inline mr-0.5" />{dueLabel(task)}
+              </button>
+            ) : isCompany && !task.completed ? (
+              <button
+                onClick={() => {
+                  const date = prompt('Due date (YYYY-MM-DD):');
+                  if (date) onUpdate(task.id, { due_date: date });
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-surface-200/5 text-surface-200/30 border border-dashed border-surface-200/15 hover:text-surface-200/60 transition"
+              >
+                <Calendar size={8} className="inline mr-0.5" />+ due
+              </button>
+            ) : null}
+
+            {/* Status badge (people view) */}
+            {statusLabel && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-200/5 text-surface-200/40">{statusLabel}</span>
+            )}
+
             <button onClick={cyclePriority} title="Click to change priority"
               className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${pri.bg} ${pri.color} hover:opacity-80 transition`}>
               <PriIcon size={10} /> {pri.label}
             </button>
-            <button onClick={cycleEnergy} title="What kind of brain does this need?"
-              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${energy.bg} ${energy.color} hover:opacity-80 transition`}>
-              <EnergyIcon size={10} /> {energy.label}
-            </button>
-            {task.due_date && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded ${overdue ? 'bg-red-500/20 text-red-400 font-semibold' : 'bg-surface-200/5 text-surface-200/40'}`}>
-                <Calendar size={8} className="inline mr-0.5" />{dueLabel(task)}
-              </span>
+
+            {!isCompany && (
+              <button onClick={cycleEnergy} title="What kind of brain does this need?"
+                className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${energy.bg} ${energy.color} hover:opacity-80 transition`}>
+                <EnergyIcon size={10} /> {energy.label}
+              </button>
             )}
+
             {snoozed && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-200/5 text-surface-200/40">
                 <Moon size={8} className="inline mr-0.5" />snoozed
@@ -518,7 +633,6 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
           )}
         </div>
 
-        {/* Hover actions */}
         <div className="flex flex-col items-center gap-1 shrink-0">
           {!task.completed && (
             <button onClick={() => onFocus(task.id)} title="Focus on this"
@@ -541,6 +655,12 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze }) {
                   className="w-full text-left px-3 py-1.5 text-xs text-surface-200/60 hover:bg-surface-200/10 flex items-center gap-2">
                   <Edit3 size={12} /> Add note
                 </button>
+                {isCompany && (
+                  <button onClick={() => { setShowAssign(true); setShowMenu(false); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-surface-200/60 hover:bg-surface-200/10 flex items-center gap-2">
+                    <User size={12} /> Assign to...
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     const date = prompt('Due date (YYYY-MM-DD):');
@@ -609,8 +729,8 @@ function QuickAdd({ onAdd, placeholder }) {
   );
 }
 
-// ─── Kanban Column ───────────────────────────────────────
-function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onDeleteTask, onMoveTask, onFocusTask, onSnoozeTask }) {
+// ─── Kanban Column (status view) ─────────────────────────
+function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onDeleteTask, onMoveTask, onFocusTask, onSnoozeTask, isCompany, team }) {
   const [dragOver, setDragOver] = useState(false);
 
   function handleDrop(e) {
@@ -624,6 +744,7 @@ function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onD
   }
 
   const isProgress = /progress|doing|active/i.test(column.name);
+  const isWaiting = /waiting|blocked/i.test(column.name);
   const activeCount = tasks.filter(t => !t.completed).length;
   const overWip = isProgress && activeCount > WIP_LIMIT;
 
@@ -638,6 +759,7 @@ function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onD
     >
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
+          {isWaiting && <Clock size={13} className="text-amber-400/60" />}
           <h3 className="text-sm font-semibold text-surface-200/70">{column.name}</h3>
           <span className="text-[10px] text-surface-200/30 bg-surface-200/5 px-1.5 py-0.5 rounded-full">{tasks.length}</span>
           {hiddenCount > 0 && (
@@ -653,16 +775,100 @@ function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onD
         </div>
       )}
 
-      <div className="flex-1 px-3 pb-3 space-y-2 overflow-y-auto max-h-[calc(100vh-360px)]">
+      <div className="px-3 pb-3 space-y-2">
         {tasks.map(task => (
           <TaskCard
             key={task.id} task={task}
             onUpdate={onUpdateTask} onDelete={onDeleteTask}
             onFocus={onFocusTask} onSnooze={onSnoozeTask}
+            isCompany={isCompany} team={team}
           />
         ))}
         <QuickAdd placeholder={`+ Add to ${column.name}...`} onAdd={(title) => onAddTask(title, column.id)} />
       </div>
+    </div>
+  );
+}
+
+// ─── Person Column (people view — company boards) ────────
+function PersonColumn({ person, tasks, columns, onUpdateTask, onDeleteTask, onFocusTask, onSnoozeTask, team }) {
+  const [dragOver, setDragOver] = useState(false);
+  const colName = (id) => columns.find(c => c.id === id)?.name || '';
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const taskId = e.dataTransfer.getData('taskId');
+    if (!taskId) return;
+    onUpdateTask(Number(taskId), { assignee: person === '__unassigned__' ? null : person });
+  }
+
+  const openCount = tasks.filter(t => !t.completed).length;
+  const overdueCount = tasks.filter(isOverdue).length;
+
+  return (
+    <div
+      className={`flex-1 min-w-[260px] max-w-[340px] flex flex-col rounded-2xl transition-all ${
+        dragOver ? 'bg-brand-600/10 ring-2 ring-brand-500/30' : 'bg-surface-900/30'
+      }`}
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          {person === '__unassigned__' ? (
+            <>
+              <User size={14} className="text-surface-200/30" />
+              <h3 className="text-sm font-semibold text-surface-200/50">Unassigned</h3>
+            </>
+          ) : (
+            <>
+              <Avatar name={person} size={20} />
+              <h3 className="text-sm font-semibold text-surface-200/80">{person}</h3>
+            </>
+          )}
+          <span className="text-[10px] text-surface-200/30 bg-surface-200/5 px-1.5 py-0.5 rounded-full">{openCount}</span>
+          {overdueCount > 0 && (
+            <span className="text-[10px] text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded-full">{overdueCount} overdue</span>
+          )}
+        </div>
+      </div>
+
+      <div className="px-3 pb-3 space-y-2">
+        {tasks.map(task => (
+          <TaskCard
+            key={task.id} task={task}
+            onUpdate={onUpdateTask} onDelete={onDeleteTask}
+            onFocus={onFocusTask} onSnooze={onSnoozeTask}
+            isCompany team={team}
+            statusLabel={colName(task.column_id)}
+          />
+        ))}
+        {tasks.length === 0 && (
+          <p className="text-xs text-surface-200/25 px-1 py-2">Drag a task here to assign it</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Board type selector ─────────────────────────────────
+function TypePick({ value, onChange }) {
+  return (
+    <div className="flex gap-1.5">
+      <button type="button" onClick={() => onChange('personal')}
+        className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition ${
+          value === 'personal' ? 'border-brand-500/50 bg-brand-600/15 text-brand-300 font-medium' : 'border-surface-200/10 text-surface-200/40 hover:text-white'
+        }`}>
+        <User size={12} /> Personal
+      </button>
+      <button type="button" onClick={() => onChange('company')}
+        className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition ${
+          value === 'company' ? 'border-brand-500/50 bg-brand-600/15 text-brand-300 font-medium' : 'border-surface-200/10 text-surface-200/40 hover:text-white'
+        }`}>
+        <Users size={12} /> Company
+      </button>
     </div>
   );
 }
@@ -706,6 +912,7 @@ function ProjectChip({ project, active, onSelect, onRename, onDelete }) {
       >
         <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: project.color }} />
         {project.name}
+        {project.type === 'company' && <Users size={11} className="text-surface-200/30" />}
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); setMenu(!menu); setConfirming(false); }}
@@ -741,12 +948,13 @@ function ProjectPicker({ projects, activeId, onSelect, onCreate, onRename, onDel
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState(PROJECT_COLORS[0]);
+  const [type, setType] = useState('personal');
 
   function handleCreate(e) {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate(name.trim(), color);
-    setName(''); setShowNew(false);
+    onCreate(name.trim(), color, type);
+    setName(''); setShowNew(false); setType('personal');
   }
 
   return (
@@ -759,7 +967,8 @@ function ProjectPicker({ projects, activeId, onSelect, onCreate, onRename, onDel
       ))}
 
       {showNew ? (
-        <form onSubmit={handleCreate} className="flex items-center gap-2 animate-slide-up">
+        <form onSubmit={handleCreate} className="flex items-center gap-2.5 animate-slide-up flex-wrap bg-surface-900/50 border border-surface-200/10 rounded-xl px-3 py-2">
+          <TypePick value={type} onChange={setType} />
           <div className="flex gap-1">
             {PROJECT_COLORS.map(c => (
               <button key={c} type="button" onClick={() => setColor(c)}
@@ -770,8 +979,8 @@ function ProjectPicker({ projects, activeId, onSelect, onCreate, onRename, onDel
           <input
             autoFocus value={name}
             onChange={e => setName(e.target.value)}
-            placeholder="Project name..."
-            className="bg-surface-800 border border-surface-200/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-surface-200/30 outline-none focus:border-brand-500/50 w-40"
+            placeholder={type === 'company' ? 'Team project name...' : 'Project name...'}
+            className="bg-surface-800 border border-surface-200/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-surface-200/30 outline-none focus:border-brand-500/50 w-44"
             onKeyDown={e => { if (e.key === 'Escape') setShowNew(false); }}
           />
           <button type="submit" disabled={!name.trim()} className="text-brand-400 hover:text-brand-300 disabled:opacity-30">
@@ -794,20 +1003,22 @@ function ProjectPicker({ projects, activeId, onSelect, onCreate, onRename, onDel
 // ─── Empty State ─────────────────────────────────────────
 function EmptyState({ onCreate }) {
   const [name, setName] = useState('');
+  const [type, setType] = useState('personal');
   return (
     <div className="flex flex-col items-center justify-center py-20">
       <div className="w-20 h-20 rounded-2xl bg-brand-600/10 flex items-center justify-center mb-6">
         <FolderKanban size={40} className="text-brand-400" />
       </div>
       <h2 className="text-xl font-bold mb-2">No boards yet</h2>
-      <p className="text-surface-200/40 text-sm mb-6 text-center max-w-xs">
+      <p className="text-surface-200/40 text-sm mb-5 text-center max-w-xs">
         Create your first board. Keep it simple — you can always add more later.
       </p>
-      <form onSubmit={e => { e.preventDefault(); if (name.trim()) onCreate(name.trim(), PROJECT_COLORS[0]); }} className="flex gap-2">
+      <div className="mb-4"><TypePick value={type} onChange={setType} /></div>
+      <form onSubmit={e => { e.preventDefault(); if (name.trim()) onCreate(name.trim(), PROJECT_COLORS[0], type); }} className="flex gap-2">
         <input
           autoFocus value={name}
           onChange={e => setName(e.target.value)}
-          placeholder='e.g. "Patient Orders" or "This Week"'
+          placeholder={type === 'company' ? 'e.g. "Warehouse Move" or "Ops"' : 'e.g. "Patient Orders" or "This Week"'}
           className="bg-surface-800 border border-surface-200/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-surface-200/30 outline-none focus:border-brand-500/50 w-72"
         />
         <button type="submit" disabled={!name.trim()} className="btn-primary rounded-xl disabled:opacity-30">Create</button>
@@ -825,6 +1036,8 @@ export default function ProjectsView() {
   const [loading, setLoading] = useState(true);
   const [boardLoading, setBoardLoading] = useState(false);
   const [energyFilter, setEnergyFilter] = useState('all');
+  const [personFilter, setPersonFilter] = useState(null);
+  const [viewMode, setViewMode] = useState('status'); // 'status' | 'people'
   const [showSnoozed, setShowSnoozed] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
@@ -849,6 +1062,8 @@ export default function ProjectsView() {
   // Load board
   useEffect(() => {
     if (!activeProjectId) return;
+    setPersonFilter(null);
+    setViewMode('status');
     (async () => {
       setBoardLoading(true);
       try {
@@ -863,10 +1078,13 @@ export default function ProjectsView() {
     })();
   }, [activeProjectId]);
 
+  const activeProject = projects.find(p => p.id === activeProjectId);
+  const isCompany = activeProject?.type === 'company';
+
   // ── Project actions ──
-  async function createProject(name, color) {
+  async function createProject(name, color, type) {
     try {
-      const { project } = await api.projectCreate(name, color);
+      const { project } = await api.projectCreate(name, color, type);
       setProjects(prev => [...prev, project]);
       setActiveProjectId(project.id);
       const data = await api.projectBoard(project.id);
@@ -904,7 +1122,7 @@ export default function ProjectsView() {
     } catch (err) { console.error('Add task error:', err); }
   }
 
-  function brainDump(title) {
+  function addToDo(title) {
     const firstCol = columns[0];
     if (firstCol) addTask(title, firstCol.id);
   }
@@ -963,23 +1181,35 @@ export default function ProjectsView() {
 
   function completeFromFocus(taskId) {
     updateTask(taskId, { completed: true }, { celebrate: true });
-    // stay at same index — queue recomputes and shifts next task in
   }
 
   // ── Derived ──
+  const team = useMemo(() => {
+    const names = new Set(tasks.map(t => t.assignee).filter(Boolean));
+    return [...names].sort();
+  }, [tasks]);
+
+  const peopleStats = useMemo(() => team.map(name => {
+    const theirs = tasks.filter(t => t.assignee === name && !t.completed);
+    return { name, open: theirs.length, overdue: theirs.filter(isOverdue).length };
+  }), [team, tasks]);
+
+  const unassignedCount = tasks.filter(t => !t.assignee && !t.completed).length;
+
   const visibleTasks = useMemo(() => tasks.filter(t => {
     if (!showSnoozed && isSnoozed(t)) return false;
     if (energyFilter !== 'all' && (t.energy || 'normal') !== energyFilter && !t.completed) return false;
+    if (personFilter === '__unassigned__' && t.assignee) return false;
+    if (personFilter && personFilter !== '__unassigned__' && t.assignee !== personFilter) return false;
     return true;
-  }), [tasks, showSnoozed, energyFilter]);
+  }), [tasks, showSnoozed, energyFilter, personFilter]);
 
   const snoozedCount = tasks.filter(isSnoozed).length;
   const overdueTasks = tasks.filter(t => isOverdue(t) && !isSnoozed(t));
   const completedToday = useMemo(() => tasks.filter(t => {
     if (!t.completed) return false;
     const d = new Date((t.updated_at || '').replace(' ', 'T') + 'Z');
-    const now = new Date();
-    return d.toDateString() === now.toDateString();
+    return d.toDateString() === new Date().toDateString();
   }).length, [tasks]);
   const doneCount = Math.max(doneToday, completedToday);
 
@@ -1034,8 +1264,8 @@ export default function ProjectsView() {
         </button>
       </div>
 
-      {/* Brain dump */}
-      <BrainDump onAdd={brainDump} />
+      {/* Add a to do */}
+      <AddToDo onAdd={addToDo} />
 
       {/* Overdue strip */}
       {overdueTasks.length > 0 && (
@@ -1046,7 +1276,7 @@ export default function ProjectsView() {
           {overdueTasks.slice(0, 3).map(t => (
             <button key={t.id} onClick={() => enterFocus(t.id)}
               className="text-xs text-red-300/80 hover:text-white bg-red-500/10 hover:bg-red-500/20 rounded-lg px-2 py-1 transition truncate max-w-[200px]">
-              {t.title}
+              {t.assignee ? `${t.assignee}: ` : ''}{t.title}
             </button>
           ))}
           {overdueTasks.length > 3 && <span className="text-xs text-red-400/50">+{overdueTasks.length - 3} more</span>}
@@ -1060,19 +1290,64 @@ export default function ProjectsView() {
         onRename={renameProject} onDelete={deleteProject}
       />
 
-      {/* Filters row */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-surface-200/30">Brain right now:</span>
-        <div className="flex gap-1">
-          {[['all', 'Show all'], ['low', '🥱 Low'], ['normal', '🙂 OK'], ['high', '⚡ Fired up']].map(([key, label]) => (
-            <button key={key} onClick={() => setEnergyFilter(key)}
-              className={`text-xs px-2.5 py-1 rounded-lg transition ${
-                energyFilter === key ? 'bg-brand-600/30 text-brand-300 font-medium' : 'text-surface-200/40 hover:text-white hover:bg-surface-200/10'
-              }`}>
-              {label}
+      {/* Company: people bar + view toggle */}
+      {isCompany && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center rounded-lg bg-surface-900/50 border border-surface-200/10 p-0.5">
+            <button onClick={() => setViewMode('status')}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition ${viewMode === 'status' ? 'bg-surface-200/15 text-white font-medium' : 'text-surface-200/40 hover:text-white'}`}>
+              <Columns3 size={12} /> By status
+            </button>
+            <button onClick={() => setViewMode('people')}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md transition ${viewMode === 'people' ? 'bg-surface-200/15 text-white font-medium' : 'text-surface-200/40 hover:text-white'}`}>
+              <Users size={12} /> By person
+            </button>
+          </div>
+
+          {peopleStats.map(p => (
+            <button key={p.name}
+              onClick={() => setPersonFilter(personFilter === p.name ? null : p.name)}
+              className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg transition ${
+                personFilter === p.name ? 'bg-brand-600/30 text-white ring-1 ring-brand-500/40 font-medium' : 'bg-surface-200/5 text-surface-200/50 hover:text-white hover:bg-surface-200/10'
+              }`}
+              title={`${p.name}: ${p.open} open${p.overdue ? `, ${p.overdue} overdue` : ''}`}
+            >
+              <Avatar name={p.name} size={16} />
+              {p.name}
+              <span className="text-surface-200/40">{p.open}</span>
+              {p.overdue > 0 && <span className="text-red-400 font-semibold">!{p.overdue}</span>}
             </button>
           ))}
+          {unassignedCount > 0 && (
+            <button
+              onClick={() => setPersonFilter(personFilter === '__unassigned__' ? null : '__unassigned__')}
+              className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg transition ${
+                personFilter === '__unassigned__' ? 'bg-brand-600/30 text-white ring-1 ring-brand-500/40 font-medium' : 'bg-surface-200/5 text-surface-200/40 hover:text-white hover:bg-surface-200/10'
+              }`}
+            >
+              <User size={12} /> Unassigned <span className="text-surface-200/40">{unassignedCount}</span>
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Filters row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {!isCompany && (
+          <>
+            <span className="text-xs text-surface-200/30">Brain right now:</span>
+            <div className="flex gap-1">
+              {[['all', 'Show all'], ['low', '🥱 Low'], ['normal', '🙂 OK'], ['high', '⚡ Fired up']].map(([key, label]) => (
+                <button key={key} onClick={() => setEnergyFilter(key)}
+                  className={`text-xs px-2.5 py-1 rounded-lg transition ${
+                    energyFilter === key ? 'bg-brand-600/30 text-brand-300 font-medium' : 'text-surface-200/40 hover:text-white hover:bg-surface-200/10'
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {snoozedCount > 0 && (
           <button onClick={() => setShowSnoozed(!showSnoozed)}
             className="flex items-center gap-1.5 text-xs text-surface-200/40 hover:text-white transition ml-auto">
@@ -1088,6 +1363,30 @@ export default function ProjectsView() {
           <Sparkles size={20} className="text-brand-400 animate-spin mr-2" />
           <span className="text-surface-200/40 text-sm">Loading board...</span>
         </div>
+      ) : isCompany && viewMode === 'people' ? (
+        <div className="flex gap-4 overflow-x-auto pb-4" data-focus-group>
+          {[...team, '__unassigned__'].map(person => {
+            const personTasks = visibleTasks
+              .filter(t => person === '__unassigned__' ? !t.assignee : t.assignee === person)
+              .filter(t => !t.completed)
+              .sort((a, b) => {
+                if (a.due_date && b.due_date) return new Date(a.due_date) - new Date(b.due_date);
+                if (a.due_date) return -1;
+                if (b.due_date) return 1;
+                return a.sort_order - b.sort_order;
+              });
+            if (person === '__unassigned__' && personTasks.length === 0 && team.length > 0) return null;
+            return (
+              <PersonColumn
+                key={person} person={person}
+                tasks={personTasks} columns={columns}
+                onUpdateTask={updateTask} onDeleteTask={deleteTask}
+                onFocusTask={enterFocus} onSnoozeTask={snoozeTask}
+                team={team}
+              />
+            );
+          })}
+        </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4" data-focus-group>
           {columns.map(col => {
@@ -1102,6 +1401,7 @@ export default function ProjectsView() {
                 onAddTask={addTask} onUpdateTask={updateTask}
                 onDeleteTask={deleteTask} onMoveTask={moveTask}
                 onFocusTask={enterFocus} onSnoozeTask={snoozeTask}
+                isCompany={isCompany} team={team}
               />
             );
           })}
@@ -1116,6 +1416,7 @@ export default function ProjectsView() {
           <span>{tasks.filter(t => (t.priority === 'urgent' || t.priority === 'high') && !t.completed).length} high priority</span>
           {overdueTasks.length > 0 && <span className="text-red-400/60">{overdueTasks.length} overdue</span>}
           {snoozedCount > 0 && <span>{snoozedCount} snoozed</span>}
+          {isCompany && team.length > 0 && <span>{team.length} people</span>}
         </div>
       )}
     </div>

@@ -47,10 +47,12 @@ function ensureTables() {
     ["time_estimate", "INTEGER DEFAULT NULL"],
     ["snoozed_until", "TEXT DEFAULT NULL"],
     ["subtasks", "TEXT DEFAULT '[]'"],
+    ["assignee", "TEXT DEFAULT NULL"],
   ];
   for (const [col, def] of newCols) {
     try { db.exec(`ALTER TABLE project_tasks ADD COLUMN ${col} ${def}`); } catch (e) { /* exists */ }
   }
+  try { db.exec(`ALTER TABLE projects ADD COLUMN type TEXT DEFAULT 'personal'`); } catch (e) { /* exists */ }
 }
 
 // ---- PROJECTS ----
@@ -75,17 +77,20 @@ router.post('/', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
-    const { name, color } = req.body;
+    const { name, color, type } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
+    const projectType = type === 'company' ? 'company' : 'personal';
 
     const result = db.prepare(
-      'INSERT INTO projects (name, color) VALUES (?, ?)'
-    ).run(name, color || '#6366f1');
+      'INSERT INTO projects (name, color, type) VALUES (?, ?, ?)'
+    ).run(name, color || '#6366f1', projectType);
 
     const projectId = result.lastInsertRowid;
 
-    // Create default columns
-    const defaultCols = ['To Do', 'In Progress', 'Done'];
+    // Create default columns — company boards get an explicit "Waiting On" lane for delegated work
+    const defaultCols = projectType === 'company'
+      ? ['To Do', 'In Progress', 'Waiting On', 'Done']
+      : ['To Do', 'In Progress', 'Done'];
     const insertCol = db.prepare(
       'INSERT INTO project_columns (project_id, name, sort_order) VALUES (?, ?, ?)'
     );
@@ -195,14 +200,14 @@ router.post('/:id/tasks', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
-    const { title, column_id, description, priority, color, due_date, energy, time_estimate } = req.body;
+    const { title, column_id, description, priority, color, due_date, energy, time_estimate, assignee } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });
     if (!column_id) return res.status(400).json({ error: 'column_id required' });
 
     const maxOrder = db.prepare('SELECT MAX(sort_order) as m FROM project_tasks WHERE column_id = ?').get(column_id);
     const result = db.prepare(
-      'INSERT INTO project_tasks (project_id, column_id, title, description, priority, color, due_date, energy, time_estimate, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(req.params.id, column_id, title, description || '', priority || 'normal', color || '', due_date || null, energy || 'normal', time_estimate || null, (maxOrder?.m || 0) + 1);
+      'INSERT INTO project_tasks (project_id, column_id, title, description, priority, color, due_date, energy, time_estimate, assignee, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(req.params.id, column_id, title, description || '', priority || 'normal', color || '', due_date || null, energy || 'normal', time_estimate || null, assignee || null, (maxOrder?.m || 0) + 1);
 
     const task = db.prepare('SELECT * FROM project_tasks WHERE id = ?').get(result.lastInsertRowid);
     res.json({ task });
@@ -215,7 +220,7 @@ router.patch('/:projectId/tasks/:taskId', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
-    const { title, description, priority, color, column_id, sort_order, completed, due_date, energy, time_estimate, snoozed_until, subtasks } = req.body;
+    const { title, description, priority, color, column_id, sort_order, completed, due_date, energy, time_estimate, snoozed_until, subtasks, assignee } = req.body;
     const updates = [];
     const values = [];
 
@@ -230,6 +235,7 @@ router.patch('/:projectId/tasks/:taskId', (req, res) => {
     if (energy !== undefined) { updates.push('energy = ?'); values.push(energy); }
     if (time_estimate !== undefined) { updates.push('time_estimate = ?'); values.push(time_estimate); }
     if (snoozed_until !== undefined) { updates.push('snoozed_until = ?'); values.push(snoozed_until); }
+    if (assignee !== undefined) { updates.push('assignee = ?'); values.push(assignee); }
     if (subtasks !== undefined) { updates.push('subtasks = ?'); values.push(typeof subtasks === 'string' ? subtasks : JSON.stringify(subtasks)); }
 
     if (updates.length > 0) {

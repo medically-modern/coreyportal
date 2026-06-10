@@ -79,7 +79,7 @@ export const api = {
 
   // Projects
   projectsList: () => request('/projects'),
-  projectCreate: (name, color) => request('/projects', { method: 'POST', body: JSON.stringify({ name, color }) }),
+  projectCreate: (name, color, type) => request('/projects', { method: 'POST', body: JSON.stringify({ name, color, type }) }),
   projectDelete: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
   projectUpdate: (id, data) => request(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   projectBoard: (id) => request(`/projects/${id}/board`),
