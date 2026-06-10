@@ -350,14 +350,14 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
       });
     });
     (rcData?.items || []).forEach((item, i) => {
-      const contactMatch = item.text?.match(/^([^:]+): (.*)$/);
+      const contactMatch = item.text?.match(/^([^:]+): ([\s\S]*)$/);
       items.push({
         ...item,
         channel: 'rc',
         id: `rc-${i}`,
-        from: contactMatch ? contactMatch[1] : 'Unknown',
-        subject: contactMatch ? contactMatch[2] : item.text,
-        snippet: item.text || '',
+        from: item.from || (contactMatch ? contactMatch[1] : 'Unknown'),
+        subject: item.subject || (contactMatch ? contactMatch[2] : item.text),
+        snippet: item.snippet || item.text || '',
       });
     });
     (questions || []).forEach((q, i) => {
