@@ -186,33 +186,9 @@ export default function Dashboard({ onNavigate }) {
       setChannelsLoading(p => ({ ...p, email: false }));
     })();
 
+    // Slack hidden per Corey's request — no fetch, keep shape empty
     const slackPromise = (async () => {
-      try {
-        const chData = await api.slackChannels();
-        const channels = chData.channels || chData || [];
-        let recentItems = [];
-        for (const ch of channels.slice(0, 3)) {
-          try {
-            const msgs = await api.slackMessages(ch.id);
-            const msgList = msgs.messages || [];
-            msgList.slice(0, 2).forEach(m => {
-              if (m.text && !m.text.includes('has joined the channel')) {
-                recentItems.push({
-                  text: `#${ch.name}: ${m.text.slice(0, 80)}`,
-                  from: m.user_name || m.user || `#${ch.name}`,
-                  subject: m.text.slice(0, 80),
-                  snippet: m.text,
-                  time: timeAgo(m.ts),
-                  urgent: /urgent|escalat|ASAP|NOT CLEAR/i.test(m.text),
-                });
-              }
-            });
-          } catch (e) {}
-        }
-        setSlackData({ count: recentItems.length, items: recentItems });
-      } catch (e) {
-        setSlackData({ count: 0, items: [] });
-      }
+      setSlackData({ count: 0, items: [] });
       setChannelsLoading(p => ({ ...p, slack: false }));
     })();
 
@@ -507,15 +483,7 @@ export default function Dashboard({ onNavigate }) {
             onDismissItem={(i) => setDismissedItems(prev => new Set(prev).add(`rc-${i}`))}
             onTriageItem={(i, action) => console.log('triage', i, action)}
           />
-          <ChannelBucket
-            icon={MessageSquare} label="Slack" color="bg-amber-500"
-            bgColor="border-amber-500/20 bg-amber-500/5"
-            count={slackData.count} items={slackData.items}
-            loading={channelsLoading.slack}
-            onDrilldown={() => onNavigate?.('/slack')}
-            onDismissItem={(i) => setDismissedItems(prev => new Set(prev).add(`slack-${i}`))}
-            onTriageItem={(i, action) => console.log('triage', i, action)}
-          />
+          {/* Slack bucket hidden per Corey's request */}
           <PendingQuestions questions={questions} loading={channelsLoading.qa} />
         </div>
       )}

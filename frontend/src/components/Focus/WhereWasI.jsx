@@ -7,7 +7,6 @@ const STORAGE_KEY = 'corey-resume-state';
 const VIEW_LABELS = {
   '/': 'Dashboard',
   '/gmail': 'Email',
-  '/slack': 'Slack',
   '/ringcentral': 'Texts & Calls',
   '/questions': 'Team Questions',
   '/assistant': 'Elena',

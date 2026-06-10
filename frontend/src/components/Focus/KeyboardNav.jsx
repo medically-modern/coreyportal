@@ -5,7 +5,6 @@ import { Keyboard, X } from 'lucide-react';
 const SHORTCUTS = [
   { key: '1', label: 'Email', action: '/gmail' },
   { key: '2', label: 'Texts & Calls', action: '/ringcentral' },
-  { key: '3', label: 'Slack', action: '/slack' },
   { key: '4', label: 'Team Questions', action: '/questions' },
   { key: '0', label: 'Dashboard', action: '/' },
   { key: 'e', label: 'Elena', action: '/assistant' },
@@ -26,7 +25,6 @@ export default function KeyboardNav() {
     switch (e.key) {
       case '1': navigate('/gmail'); break;
       case '2': navigate('/ringcentral'); break;
-      case '3': navigate('/slack'); break;
       case '4': navigate('/questions'); break;
       case '0': navigate('/'); break;
       case 'e': navigate('/assistant'); break;
