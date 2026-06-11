@@ -168,6 +168,83 @@ function ConversationPanel({ phoneNumber, onClose }) {
   );
 }
 
+// ── Inline conversation thread (texts) — auto-loads into the card ──
+// Shows the recent back-and-forth immediately; scroll up for full history.
+function InlineConversation({ phoneNumber, fallbackText }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFailed(false);
+    setMessages([]);
+    api.rcFullConversation(phoneNumber)
+      .then(res => { if (!cancelled) setMessages(res.messages || []); })
+      .catch(() => { if (!cancelled) setFailed(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [phoneNumber]);
+
+  // Anchor to the bottom (newest) — scrolling up reveals the full history
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-surface-200/40 py-3">
+        <Loader size={12} className="animate-spin" /> Loading conversation...
+      </div>
+    );
+  }
+
+  if (failed || messages.length === 0) {
+    return <p className="text-lg font-medium text-white leading-relaxed">{fallbackText}</p>;
+  }
+
+  // Most recent inbound message = their latest response → highlighted green
+  let lastInboundIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].direction === 'Inbound') { lastInboundIdx = i; break; }
+  }
+
+  return (
+    <div className="rounded-xl bg-surface-900/40 border border-surface-200/10 overflow-hidden">
+      <div ref={scrollRef} className="max-h-64 overflow-y-auto px-3 py-2 space-y-1.5">
+        {messages.length > 4 && (
+          <p className="text-center text-[10px] text-surface-200/25 py-1">
+            ↑ scroll up — {messages.length} messages
+          </p>
+        )}
+        {messages.map((msg, i) => {
+          const isUs = msg.direction === 'Outbound';
+          const isLatestReply = i === lastInboundIdx;
+          return (
+            <div key={i} className={`flex ${isUs ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3 py-1.5 ${
+                isUs
+                  ? 'bg-brand-600/30 text-white rounded-br-md'
+                  : isLatestReply
+                    ? 'bg-good/20 border border-good/40 text-white rounded-bl-md'
+                    : 'bg-surface-200/10 text-surface-200/80 rounded-bl-md'
+              }`}>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text || '(no text)'}</p>
+                <p className={`text-[10px] mt-0.5 ${isUs ? 'text-brand-400/50' : isLatestReply ? 'text-good/70' : 'text-surface-200/25'}`}>
+                  {fmtSmartET(msg.time)}{isLatestReply ? ' · their latest' : ''}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Reply Compose Area ──
 function ReplyCompose({ current, elenaStructured, onSent }) {
   const [replyText, setReplyText] = useState('');
@@ -525,12 +602,20 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
               {current.tag && <span className="ml-2 text-surface-200/30">· {current.tag}</span>}
             </p>
           )}
-          {current.subject && current.subject !== current.snippet && (
-            <p className="text-lg font-semibold text-white leading-snug">{current.subject}</p>
+          {isText && current.from ? (
+            /* Texts: auto-load the conversation so the recent back-and-forth
+               is immediately visible — their latest reply highlighted green */
+            <InlineConversation phoneNumber={current.from} fallbackText={current.snippet} />
+          ) : (
+            <>
+              {current.subject && current.subject !== current.snippet && (
+                <p className="text-lg font-semibold text-white leading-snug">{current.subject}</p>
+              )}
+              <p className={`${current.subject && current.subject !== current.snippet ? 'text-sm text-surface-200/60' : 'text-lg font-medium text-white'} leading-relaxed`}>
+                {current.snippet?.length > 200 ? current.snippet.slice(0, 200) + '...' : current.snippet}
+              </p>
+            </>
           )}
-          <p className={`${current.subject && current.subject !== current.snippet ? 'text-sm text-surface-200/60' : 'text-lg font-medium text-white'} leading-relaxed`}>
-            {current.snippet?.length > 200 ? current.snippet.slice(0, 200) + '...' : current.snippet}
-          </p>
         </div>
 
         {/* Elena's context + recommendation — only when enabled */}
