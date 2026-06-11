@@ -22,6 +22,7 @@ function friendlyLabel(path, method = 'GET') {
   if (p.includes('/draft-reply')) return 'Elena drafting...';
   if (p.includes('/briefing')) return 'Elena briefing...';
   if (p.includes('/focus-context')) return "Elena's take...";
+  if (p.includes('/monday/search')) return 'Matching patient...';
   const area =
     p.startsWith('/gmail') ? 'email' :
     p.startsWith('/ringcentral') ? 'texts' :
@@ -105,6 +106,7 @@ export const api = {
 
   // Monday
   mondayBoards: () => request('/monday/boards'),
+  mondaySearch: (q) => request(`/monday/search?q=${encodeURIComponent(q)}`),
 
   // Q&A
   questions: (status = 'pending') => request(`/qa/questions?status=${status}`),

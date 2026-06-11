@@ -3,8 +3,20 @@ import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle } from 
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
 import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
+import { usePatientName } from '../../hooks/usePatientName';
 
 const PAGE_SIZE = 30;
+
+// Header for the selected conversation — patient name resolved, phone stays
+function ConvoHeader({ contact }) {
+  const name = usePatientName(contact);
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <h2 className="font-semibold truncate">{name || contact}</h2>
+      {name && <span className="text-xs text-surface-200/40 shrink-0">{contact}</span>}
+    </div>
+  );
+}
 
 export default function RingCentralView() {
   const [conversations, setConversations] = useState([]);
@@ -194,9 +206,9 @@ export default function RingCentralView() {
           ) : (
             <div className="space-y-3">
               <div className="flex items-center justify-between pb-3 border-b border-surface-200/10">
-                <div className="flex items-center gap-2">
-                  <h2 className="font-semibold">{selected.contact}</h2>
-                  {elenaLabels[selected.contact] && <ElenaBadge info={elenaLabels[selected.contact]} />}
+                <div className="flex items-center gap-2 min-w-0">
+                  <ConvoHeader contact={selected.contact} />
+                  {elenaLabels[selected.contact] && <span className="shrink-0"><ElenaBadge info={elenaLabels[selected.contact]} /></span>}
                 </div>
                 <button onClick={() => summarizeConvo(selected.contact)} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
                   {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}

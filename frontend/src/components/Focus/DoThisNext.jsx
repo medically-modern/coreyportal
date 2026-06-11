@@ -3,6 +3,21 @@ import { Mail, Phone, MessageSquare, HelpCircle, ChevronRight, Clock, Zap, SkipF
 import { api } from '../../services/api';
 import ElenaLogo from '../shared/ElenaLogo';
 import { fmtSmartET } from '../../utils/time';
+import { usePatientName } from '../../hooks/usePatientName';
+
+// "From:" line for texts — patient name resolved from Monday, phone stays put
+function TextFromLine({ phone, tag }) {
+  const name = usePatientName(phone);
+  return (
+    <p className="text-xs text-surface-200/40">
+      From:{' '}
+      {name && <span className="text-white font-semibold">{name}</span>}
+      {name && ' '}
+      <span className="text-surface-200/70 font-medium">{phone}</span>
+      {tag && <span className="ml-2 text-surface-200/30">· {tag}</span>}
+    </p>
+  );
+}
 
 // ── Elena take cache (localStorage) ──
 const TAKE_CACHE_KEY = 'corey-elena-takes';
@@ -93,6 +108,7 @@ function ConversationPanel({ phoneNumber, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const bottomRef = useRef(null);
+  const patientName = usePatientName(phoneNumber);
 
   useEffect(() => {
     if (!phoneNumber) return;
@@ -122,7 +138,7 @@ function ConversationPanel({ phoneNumber, onClose }) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-surface-200/10">
         <div className="flex items-center gap-2">
           <MessageCircle size={16} className="text-green-400" />
-          <span className="text-sm font-semibold text-white">Conversation</span>
+          <span className="text-sm font-semibold text-white">{patientName || 'Conversation'}</span>
           <span className="text-xs text-surface-200/40">{phoneNumber}</span>
         </div>
         <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-200/10 text-surface-200/50 hover:text-white transition">
@@ -597,10 +613,14 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         {/* Rich content */}
         <div className="space-y-2 mb-4">
           {current.from && (
-            <p className="text-xs text-surface-200/40">
-              From: <span className="text-surface-200/70 font-medium">{current.from}</span>
-              {current.tag && <span className="ml-2 text-surface-200/30">· {current.tag}</span>}
-            </p>
+            isText ? (
+              <TextFromLine phone={current.from} tag={current.tag} />
+            ) : (
+              <p className="text-xs text-surface-200/40">
+                From: <span className="text-surface-200/70 font-medium">{current.from}</span>
+                {current.tag && <span className="ml-2 text-surface-200/30">· {current.tag}</span>}
+              </p>
+            )
           )}
           {isText && current.from ? (
             /* Texts: auto-load the conversation so the recent back-and-forth
