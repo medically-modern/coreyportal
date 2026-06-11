@@ -111,29 +111,48 @@ export async function getThreads({ maxResults = 20, q = '', labelIds = ['INBOX']
   return { threads: detailed, nextPageToken: res.data.nextPageToken || null };
 }
 
+// Walk a MIME tree and pull out the html + plain-text bodies (handles
+// nested multipart/alternative, multipart/related, etc.)
+function extractBodies(payload) {
+  let html = null;
+  let text = null;
+  const decode = (data) => Buffer.from(data, 'base64').toString('utf-8');
+
+  function walk(part) {
+    if (!part) return;
+    if (!html && part.mimeType === 'text/html' && part.body?.data) {
+      html = decode(part.body.data);
+    } else if (!text && part.mimeType === 'text/plain' && part.body?.data) {
+      text = decode(part.body.data);
+    }
+    for (const p of part.parts || []) walk(p);
+  }
+  walk(payload);
+
+  // Single-part messages: body lives directly on the payload
+  if (!html && !text && payload?.body?.data) {
+    const decoded = decode(payload.body.data);
+    if ((payload.mimeType || '').includes('html')) html = decoded;
+    else text = decoded;
+  }
+  return { html, text };
+}
+
 export async function getThread(threadId) {
   const gmail = getGmail();
   const thread = await gmail.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
-  
+
   const messages = thread.data.messages.map(msg => {
     const getHeader = (name) => {
       const h = msg.payload.headers.find(h => h.name.toLowerCase() === name.toLowerCase());
       return h ? h.value : '';
     };
 
-    // Extract body text
-    let body = '';
-    if (msg.payload.body?.data) {
-      body = Buffer.from(msg.payload.body.data, 'base64').toString('utf-8');
-    } else if (msg.payload.parts) {
-      const textPart = msg.payload.parts.find(p => p.mimeType === 'text/plain') || msg.payload.parts.find(p => p.mimeType === 'text/html');
-      if (textPart?.body?.data) {
-        body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
-      }
-    }
+    const { html, text } = extractBodies(msg.payload);
 
-    // Strip HTML tags for plain text
-    const plainBody = body.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    // Plain text fallback (also used by Elena for summaries)
+    const source = text || html || '';
+    const plainBody = source.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
     return {
       id: msg.id,
@@ -142,6 +161,7 @@ export async function getThread(threadId) {
       subject: getHeader('Subject'),
       date: getHeader('Date'),
       body: plainBody.substring(0, 5000), // cap at 5k chars
+      bodyHtml: html ? html.substring(0, 500000) : null, // the REAL email, as sent
       labels: msg.labelIds || [],
       isUnread: msg.labelIds?.includes('UNREAD') || false
     };

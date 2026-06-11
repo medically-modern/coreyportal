@@ -23,6 +23,35 @@ function writeThreadCache(threads) {
   } catch {}
 }
 
+// Renders the email's REAL HTML (as sent) in a sandboxed frame — true to
+// the Gmail inbox view. Scripts are blocked; links open in a new tab.
+function EmailHtmlFrame({ html }) {
+  const ref = useRef(null);
+  const [height, setHeight] = useState(160);
+  const srcDoc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>
+    body { margin:0; padding:14px; background:#ffffff; color:#202124; font-family:Arial,Helvetica,sans-serif; font-size:14px; line-height:1.5; word-break:break-word; }
+    img { max-width:100%; height:auto; }
+    a { color:#1a73e8; }
+    table { max-width:100%; }
+  </style></head><body>${html}</body></html>`;
+  return (
+    <iframe
+      ref={ref}
+      srcDoc={srcDoc}
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      title="email"
+      className="w-full bg-white rounded-lg border border-surface-200/10"
+      style={{ height }}
+      onLoad={() => {
+        try {
+          const h = ref.current?.contentDocument?.body?.scrollHeight;
+          if (h) setHeight(Math.min(h + 28, 2000));
+        } catch {}
+      }}
+    />
+  );
+}
+
 function ThreadRow({ thread, onSelect, selected, elenaInfo }) {
   const unread = thread.isUnread || thread.unread;
   return (
@@ -346,8 +375,12 @@ export default function GmailView() {
                 {detail?.messages ? (
                   detail.messages.map((msg, i) => (
                     <div key={i} className="mb-4 pb-4 border-b border-surface-200/5 last:border-0">
-                      <p className="text-xs text-surface-200/40 mb-1">{msg.from} · {timeAgo(msg.date)}</p>
-                      <div className="text-sm text-surface-200/80 whitespace-pre-wrap">{msg.body || msg.snippet}</div>
+                      <p className="text-xs text-surface-200/40 mb-2">{msg.from} · {timeAgo(msg.date)}</p>
+                      {msg.bodyHtml ? (
+                        <EmailHtmlFrame html={msg.bodyHtml} />
+                      ) : (
+                        <div className="text-sm text-surface-200/80 whitespace-pre-wrap">{msg.body || msg.snippet}</div>
+                      )}
                     </div>
                   ))
                 ) : (
