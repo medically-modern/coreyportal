@@ -234,6 +234,26 @@ router.get('/search', async (req, res) => {
   res.json({ results: results || [] });
 });
 
+// Bulk phone -> patient name resolution (one request for a whole list view)
+router.post('/resolve', async (req, res) => {
+  try {
+    const { phones } = req.body;
+    if (!Array.isArray(phones)) return res.status(400).json({ error: 'phones array required' });
+    await ensureIndex();
+    const names = {};
+    for (const ph of phones.slice(0, 500)) {
+      const key = String(ph).replace(/\D/g, '').slice(-10);
+      if (key.length === 10) {
+        const entries = phoneIndex.get(key);
+        if (entries?.length) names[ph] = entries[0].name;
+      }
+    }
+    res.json({ names, indexReady });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Force index rebuild
 router.post('/reindex', async (req, res) => {
   lastIndexTime = 0;

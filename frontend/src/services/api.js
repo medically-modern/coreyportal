@@ -103,6 +103,7 @@ export const api = {
   // Monday
   mondayBoards: () => request('/monday/boards'),
   mondaySearch: (q) => request(`/monday/search?q=${encodeURIComponent(q)}`),
+  mondayResolvePhones: (phones) => request('/monday/resolve', { method: 'POST', body: JSON.stringify({ phones }) }),
 
   // Q&A
   questions: (status = 'pending') => request(`/qa/questions?status=${status}`),

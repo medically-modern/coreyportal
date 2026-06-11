@@ -161,6 +161,7 @@ export default function RingCentralView() {
   // Unified search: digits filter by phone; names resolve to phones via the Monday patient index
   const [searchQ, setSearchQ] = useState('');
   const [nameMatch, setNameMatch] = useState({ phones: [], names: [], loading: false });
+  const [phoneNames, setPhoneNames] = useState({}); // contact -> patient name (bulk-resolved)
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [elenaLabels, setElenaLabels] = useState({}); // contact -> {urgency,label,reason,priority}
@@ -248,6 +249,17 @@ export default function RingCentralView() {
       if (el) el.scrollTop = el.scrollHeight;
     });
   }, [selected?.contact, selected?.messages?.length]);
+
+  // Bulk-resolve every contact's patient name in ONE request (in-memory index on backend)
+  useEffect(() => {
+    const phones = [...new Set(
+      conversations.map(c => c.contact).filter(c => (c || '').replace(/\D/g, '').length >= 10)
+    )];
+    if (!phones.length) return;
+    api.mondayResolvePhones(phones)
+      .then(res => setPhoneNames(res.names || {}))
+      .catch(() => {});
+  }, [conversations.length]);
 
   // Name search → resolve to phones via Monday patient index (debounced)
   useEffect(() => {
@@ -340,9 +352,11 @@ export default function RingCentralView() {
     const contactDigits = (c.contact || '').replace(/\D/g, '');
     // Phone-style query: digits substring match
     if (qDigits.length >= 3) return contactDigits.includes(qDigits);
-    // Name query: contact matches a phone on file for that patient, or matches the text directly
+    // Name query: matches a phone on file for that patient, the resolved list name, or the contact text
     const last10 = contactDigits.slice(-10);
-    return nameMatch.phones.includes(last10) || (c.contact || '').toLowerCase().includes(q.toLowerCase());
+    return nameMatch.phones.includes(last10)
+      || (phoneNames[c.contact] || '').toLowerCase().includes(q.toLowerCase())
+      || (c.contact || '').toLowerCase().includes(q.toLowerCase());
   });
 
   const visible = searching ? filtered : filtered.slice(0, visibleCount);
@@ -415,9 +429,14 @@ export default function RingCentralView() {
                 className={`flex items-center justify-between p-3 cursor-pointer border-b border-surface-200/5 hover:bg-surface-200/5 transition ${selected?.contact === convo.contact ? 'bg-brand-600/10 border-l-2 border-l-brand-500' : ''} ${unread ? 'bg-green-500/5' : ''}`}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {unread && <span className="w-2 h-2 bg-green-400 rounded-full shrink-0" />}
-                    <span className={`text-sm truncate ${unread ? 'font-semibold' : ''}`}>{convo.contact}</span>
+                    <span className={`text-sm truncate ${unread ? 'font-semibold' : ''}`}>
+                      {phoneNames[convo.contact] || convo.contact}
+                    </span>
+                    {phoneNames[convo.contact] && (
+                      <span className="text-[10px] text-surface-200/30 shrink-0">{convo.contact}</span>
+                    )}
                     {elenaLabels[convo.contact] && <span className="shrink-0"><ElenaBadge info={elenaLabels[convo.contact]} compact /></span>}
                   </div>
                   {lastMsg && (
