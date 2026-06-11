@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle, Send, CheckCircle2, Eraser } from 'lucide-react';
+import ElenaLogo from '../shared/ElenaLogo';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
 import { ElenaBadge, OrganizeButton } from '../shared/ElenaOrganize';
@@ -29,6 +30,111 @@ function writeConvoCache(conversations) {
     }));
     localStorage.setItem(RC_CACHE_KEY, JSON.stringify({ conversations: slim, time: Date.now() }));
   } catch {}
+}
+
+// SMS reply composer — write or Elena-draft, send right from the conversation
+function SmsReplyBox({ contact, lastInboundText, onSent }) {
+  const [text, setText] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null); // 'sent' | 'error'
+  const taRef = useRef(null);
+
+  const isPhone = /^\+?\d[\d\s().-]{7,}$/.test(contact || '');
+  if (!isPhone) return null;
+
+  function autosize() {
+    const ta = taRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    }
+  }
+
+  async function handleDraft() {
+    setDrafting(true);
+    try {
+      const res = await api.draftReply({
+        channel: 'text',
+        originalText: lastInboundText || '',
+        from: contact,
+      });
+      setText(res.draft || '');
+      setTimeout(() => { autosize(); taRef.current?.focus(); }, 50);
+    } catch {
+      setText("(Elena couldn't draft a reply — write your own)");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  async function handleSend() {
+    if (!text.trim()) return;
+    setSending(true);
+    setResult(null);
+    try {
+      await api.rcSendSMS(contact, text.trim());
+      setResult('sent');
+      onSent?.(text.trim());
+      setText('');
+      setTimeout(() => setResult(null), 2500);
+    } catch (e) {
+      console.error('SMS send error:', e);
+      setResult('error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="sticky bottom-0 bg-surface-800 rounded-xl border border-surface-200/10 p-3 space-y-2 mt-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-surface-200/30 uppercase tracking-wider font-semibold">Reply via Text</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleDraft}
+            disabled={drafting}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-600/20 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition disabled:opacity-50"
+          >
+            {drafting ? <Loader size={10} className="animate-spin" /> : <ElenaLogo size={12} />}
+            {drafting ? 'Drafting...' : 'Elena Draft'}
+          </button>
+          {text && (
+            <button
+              onClick={() => { setText(''); setResult(null); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface-200/10 text-surface-200/50 text-xs hover:bg-surface-200/15 transition"
+            >
+              <Eraser size={10} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={e => { setText(e.target.value); setResult(null); autosize(); }}
+        placeholder="Type a message..."
+        rows={2}
+        className="w-full bg-surface-900/50 border border-surface-200/10 rounded-lg px-3 py-2 text-sm text-surface-100 placeholder:text-surface-200/25 resize-none focus:outline-none focus:border-brand-600/40 transition"
+      />
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs">
+          {result === 'sent' && <span className="text-good flex items-center gap-1"><CheckCircle2 size={12} /> Sent!</span>}
+          {result === 'error' && <span className="text-bad">Failed to send. Try again.</span>}
+        </div>
+        <button
+          onClick={handleSend}
+          disabled={!text.trim() || sending}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
+          {sending ? 'Sending...' : 'Send'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Header for the selected conversation — patient name resolved, phone stays
@@ -274,6 +380,19 @@ export default function RingCentralView() {
                   </div>
                 </div>
               ))}
+
+              <SmsReplyBox
+                key={selected.contact}
+                contact={selected.contact}
+                lastInboundText={(selected.messages || []).find(m => m.direction === 'Inbound')?.text || ''}
+                onSent={(sentText) => {
+                  const newMsg = { id: `local-${Date.now()}`, direction: 'Outbound', text: sentText, time: new Date().toISOString(), readStatus: 'Read' };
+                  setSelected(prev => prev ? { ...prev, messages: [newMsg, ...(prev.messages || [])], lastMessageTime: newMsg.time } : prev);
+                  setConversations(prev => prev.map(c => c.contact === selected.contact
+                    ? { ...c, messages: [newMsg, ...(c.messages || [])], lastMessageTime: newMsg.time }
+                    : c));
+                }}
+              />
             </div>
           )}
         </div>
