@@ -563,7 +563,11 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
     }, durationMs);
   }
 
-  const channelPath = { email: '/gmail', slack: '/slack', rc: '/ringcentral', qa: '/questions' }[current.channel];
+  // Open goes to the EXACT item — specific email thread / specific conversation
+  const channelPath =
+    current.channel === 'email' && current.threadId ? `/gmail?thread=${current.threadId}` :
+    current.channel === 'rc' && current.from ? `/ringcentral?contact=${encodeURIComponent(current.from)}` :
+    { email: '/gmail', slack: '/slack', rc: '/ringcentral', qa: '/questions' }[current.channel];
 
   return (
     <div className="space-y-4">

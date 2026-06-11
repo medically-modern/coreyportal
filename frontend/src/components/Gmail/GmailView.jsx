@@ -1,8 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
 import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
+
+// Cached threads — shown instantly on revisit while fresh data loads behind a spinner
+const GMAIL_CACHE_KEY = 'corey-gmail-threads-cache';
+
+function readThreadCache() {
+  try {
+    const raw = localStorage.getItem(GMAIL_CACHE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return Array.isArray(d.threads) ? d.threads : null;
+  } catch { return null; }
+}
+
+function writeThreadCache(threads) {
+  try {
+    localStorage.setItem(GMAIL_CACHE_KEY, JSON.stringify({ threads: threads.slice(0, 50), time: Date.now() }));
+  } catch {}
+}
 
 function ThreadRow({ thread, onSelect, selected, elenaInfo }) {
   const unread = thread.isUnread || thread.unread;
@@ -36,14 +55,18 @@ function ThreadRow({ thread, onSelect, selected, elenaInfo }) {
 }
 
 export default function GmailView() {
-  const [connected, setConnected] = useState(null);
-  const [threads, setThreads] = useState([]);
+  const cachedThreads = useRef(readThreadCache());
+  const [connected, setConnected] = useState(cachedThreads.current ? true : null);
+  const [threads, setThreads] = useState(cachedThreads.current || []);
   const [nextPageToken, setNextPageToken] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedThreads.current);
+  const [updating, setUpdating] = useState(false);
+  const [searchParams] = useSearchParams();
+  const deepLinkDone = useRef(false);
   const [searchQ, setSearchQ] = useState('');
   const [searching, setSearching] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -63,7 +86,9 @@ export default function GmailView() {
   }
 
   async function loadGmail() {
-    setLoading(true);
+    // Cached items stay visible — the spinner shows fresh data is coming
+    const hasCache = threads.length > 0;
+    if (hasCache) setUpdating(true); else setLoading(true);
     setSearching(false);
     try {
       const status = await api.gmailStatus();
@@ -72,11 +97,13 @@ export default function GmailView() {
         const data = await api.gmailThreads(50);
         setThreads(data.threads || []);
         setNextPageToken(data.nextPageToken || null);
+        writeThreadCache(data.threads || []);
       }
     } catch (e) {
-      setConnected(false);
+      if (!hasCache) setConnected(false);
     }
     setLoading(false);
+    setUpdating(false);
   }
 
   // Saved Elena labels — loaded once per page view, NO AI call
@@ -160,6 +187,26 @@ export default function GmailView() {
 
   useEffect(() => { loadGmail(); loadSavedLabels(); }, []);
 
+  // Deep link: /gmail?thread=<id> opens that exact email
+  useEffect(() => {
+    const tid = searchParams.get('thread');
+    if (!tid || deepLinkDone.current) return;
+    const t = threads.find(x => x.id === tid);
+    if (t) {
+      deepLinkDone.current = true;
+      selectThread(t);
+    } else if (!loading && threads.length > 0) {
+      // Not in the loaded list — fetch the thread directly
+      deepLinkDone.current = true;
+      api.gmailThread(tid).then(data => {
+        const th = data.thread || data;
+        const last = th.messages?.[th.messages.length - 1] || {};
+        setSelected({ id: tid, subject: last.subject || '(email)', from: last.from || '', date: last.date || '', snippet: '' });
+        setDetail(th);
+      }).catch(() => {});
+    }
+  }, [threads, loading]);
+
   // Unreads always float to the top; Elena's priority orders the unreads when available
   const sortedThreads = [...threads].sort((a, b) => {
     const aUn = (a.isUnread || a.unread) ? 0 : 1;
@@ -207,9 +254,14 @@ export default function GmailView() {
         <h1 className="text-xl font-bold flex items-center gap-2">
           <Mail size={20} /> Email
           <span className="text-sm font-normal text-surface-200/40">({threads.length} loaded, {unreadCount} unprocessed)</span>
+          {updating && (
+            <span className="flex items-center gap-1.5 text-xs font-normal text-surface-200/40">
+              <Loader size={12} className="animate-spin text-brand-400" /> Updating...
+            </span>
+          )}
         </h1>
         <button onClick={loadGmail} className="text-surface-200/40 hover:text-white">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={16} className={loading || updating ? 'animate-spin' : ''} />
         </button>
       </div>
 

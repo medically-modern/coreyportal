@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
@@ -6,6 +7,29 @@ import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrgani
 import { usePatientName } from '../../hooks/usePatientName';
 
 const PAGE_SIZE = 30;
+
+// Cached conversations — shown instantly on revisit while fresh data loads
+const RC_CACHE_KEY = 'corey-rc-convos-cache';
+
+function readConvoCache() {
+  try {
+    const raw = localStorage.getItem(RC_CACHE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return Array.isArray(d.conversations) ? d.conversations : null;
+  } catch { return null; }
+}
+
+function writeConvoCache(conversations) {
+  try {
+    // Trim message bodies per convo to keep localStorage small
+    const slim = conversations.slice(0, 50).map(c => ({
+      ...c,
+      messages: (c.messages || []).slice(0, 6),
+    }));
+    localStorage.setItem(RC_CACHE_KEY, JSON.stringify({ conversations: slim, time: Date.now() }));
+  } catch {}
+}
 
 // Header for the selected conversation — patient name resolved, phone stays
 function ConvoHeader({ contact }) {
@@ -19,11 +43,15 @@ function ConvoHeader({ contact }) {
 }
 
 export default function RingCentralView() {
-  const [conversations, setConversations] = useState([]);
+  const cachedConvos = useRef(readConvoCache());
+  const [conversations, setConversations] = useState(cachedConvos.current || []);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selected, setSelected] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(null);
+  const [loading, setLoading] = useState(!cachedConvos.current);
+  const [updating, setUpdating] = useState(false);
+  const [connected, setConnected] = useState(cachedConvos.current ? true : null);
+  const [searchParams] = useSearchParams();
+  const deepLinkDone = useRef(false);
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [elenaLabels, setElenaLabels] = useState({}); // contact -> {urgency,label,reason,priority}
@@ -39,18 +67,24 @@ export default function RingCentralView() {
   }
 
   async function loadMessages() {
-    setLoading(true);
+    // Cached items stay visible — the spinner shows fresh data is coming
+    const hasCache = conversations.length > 0;
+    if (hasCache) setUpdating(true); else setLoading(true);
     try {
       const status = await api.rcStatus();
       setConnected(status.connected !== false);
       // 90-day lookback — backend pages through everything in range
       const data = await api.rcMessages(90);
-      setConversations(data.conversations || []);
-      setVisibleCount(PAGE_SIZE);
+      const fresh = data.conversations || [];
+      setConversations(fresh);
+      writeConvoCache(fresh);
+      // If a convo is open (possibly from trimmed cache), swap in the fresh full version
+      setSelected(prev => prev ? (fresh.find(c => c.contact === prev.contact) || prev) : prev);
     } catch (e) {
-      setConnected(false);
+      if (!hasCache) setConnected(false);
     }
     setLoading(false);
+    setUpdating(false);
   }
 
   async function loadSavedLabels() {
@@ -98,6 +132,22 @@ export default function RingCentralView() {
 
   useEffect(() => { loadMessages(); loadSavedLabels(); }, []);
 
+  // Deep link: /ringcentral?contact=<phone> opens that exact conversation
+  useEffect(() => {
+    const contact = searchParams.get('contact');
+    if (!contact || deepLinkDone.current || conversations.length === 0) return;
+    const digits = contact.replace(/\D/g, '').slice(-10);
+    const match = conversations.find(c =>
+      c.contact === contact ||
+      (digits && (c.contact || '').replace(/\D/g, '').slice(-10) === digits)
+    );
+    if (match) {
+      deepLinkDone.current = true;
+      setSelected(match);
+      setSummary(null);
+    }
+  }, [conversations]);
+
   if (connected === false) {
     return (
       <div className="card text-center py-12 space-y-4">
@@ -135,9 +185,14 @@ export default function RingCentralView() {
         <h1 className="text-xl font-bold flex items-center gap-2">
           <Phone size={20} /> RingCentral
           <span className="text-sm font-normal text-surface-200/40">({conversations.length} conversations, {unreadCount} unread)</span>
+          {updating && (
+            <span className="flex items-center gap-1.5 text-xs font-normal text-surface-200/40">
+              <Loader size={12} className="animate-spin text-brand-400" /> Updating...
+            </span>
+          )}
         </h1>
         <button onClick={loadMessages} className="text-surface-200/40 hover:text-white">
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={16} className={loading || updating ? 'animate-spin' : ''} />
         </button>
       </div>
 
