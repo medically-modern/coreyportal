@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle } from 'lucide-react';
+import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle, Send, CheckCircle2 } from 'lucide-react';
+import ElenaLogo from '../shared/ElenaLogo';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
 import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
@@ -49,6 +50,106 @@ function EmailHtmlFrame({ html }) {
         } catch {}
       }}
     />
+  );
+}
+
+// Reply composer — write or Elena-draft, then send without leaving the portal
+function ReplyBox({ thread, detail, onSent }) {
+  const [text, setText] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null); // 'sent' | 'error'
+  const taRef = useRef(null);
+
+  const lastMsg = detail?.messages?.[detail.messages.length - 1];
+  const fromHeader = lastMsg?.from || thread.from || '';
+  const emailMatch = fromHeader.match(/<([^>]+)>/);
+  const toEmail = emailMatch ? emailMatch[1] : fromHeader;
+
+  function autosize() {
+    const ta = taRef.current;
+    if (ta) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 240) + 'px';
+    }
+  }
+
+  async function handleDraft() {
+    setDrafting(true);
+    try {
+      const res = await api.draftReply({
+        channel: 'email',
+        originalText: lastMsg?.body || thread.snippet || '',
+        from: fromHeader,
+        subject: thread.subject,
+      });
+      setText(res.draft || '');
+      setTimeout(() => { autosize(); taRef.current?.focus(); }, 50);
+    } catch {
+      setText("(Elena couldn't draft a reply — write your own)");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  async function handleSend() {
+    if (!text.trim() || !toEmail) return;
+    setSending(true);
+    setResult(null);
+    try {
+      await api.gmailReply(thread.id, toEmail, thread.subject, text.trim());
+      setResult('sent');
+      setText('');
+      onSent?.();
+      setTimeout(() => setResult(null), 2500);
+    } catch (e) {
+      console.error('Reply send error:', e);
+      setResult('error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl bg-surface-900/60 border border-surface-200/10 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-surface-200/30 uppercase tracking-wider font-semibold">
+          Reply to <span className="text-surface-200/50 normal-case">{toEmail || '...'}</span>
+        </p>
+        <button
+          onClick={handleDraft}
+          disabled={drafting}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand-600/20 text-brand-400 text-xs font-medium hover:bg-brand-600/30 transition disabled:opacity-50"
+        >
+          {drafting ? <Loader size={10} className="animate-spin" /> : <ElenaLogo size={12} />}
+          {drafting ? 'Drafting...' : 'Elena Draft'}
+        </button>
+      </div>
+
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={e => { setText(e.target.value); setResult(null); autosize(); }}
+        placeholder="Write your reply..."
+        rows={3}
+        className="w-full bg-surface-800/50 border border-surface-200/10 rounded-lg px-3 py-2 text-sm text-surface-100 placeholder:text-surface-200/25 resize-none focus:outline-none focus:border-brand-600/40 transition"
+      />
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs">
+          {result === 'sent' && <span className="text-good flex items-center gap-1"><CheckCircle2 size={12} /> Sent — marked processed</span>}
+          {result === 'error' && <span className="text-bad">Failed to send. Try again.</span>}
+        </div>
+        <button
+          onClick={handleSend}
+          disabled={!text.trim() || sending}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
+          {sending ? 'Sending...' : 'Send'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -199,6 +300,17 @@ export default function GmailView() {
       setSummary('Could not generate summary.');
     }
     setSummaryLoading(false);
+  }
+
+  // Mark thread processed (read) — after replying, or manually
+  async function markProcessed(threadId) {
+    try { await api.gmailMarkRead(threadId); } catch {}
+    setThreads(prev => {
+      const next = prev.map(t => t.id === threadId ? { ...t, isUnread: false, unread: false } : t);
+      writeThreadCache(next);
+      return next;
+    });
+    setSelected(prev => prev && prev.id === threadId ? { ...prev, isUnread: false, unread: false } : prev);
   }
 
   async function handleSearch(e) {
@@ -360,10 +472,17 @@ export default function GmailView() {
                 )}
               </div>
 
-              <button onClick={summarizeThread} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
-                {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                Elena Summarize
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={summarizeThread} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
+                  {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  Elena Summarize
+                </button>
+                {(selected.isUnread || selected.unread) && (
+                  <button onClick={() => markProcessed(selected.id)} className="flex items-center gap-1 text-xs px-3 py-2 rounded-lg bg-good/15 text-good hover:bg-good/25 transition">
+                    <CheckCircle2 size={12} /> Mark Processed
+                  </button>
+                )}
+              </div>
 
               {summary && (
                 <div className="bg-brand-600/10 border border-brand-600/20 rounded-lg p-3">
@@ -387,6 +506,14 @@ export default function GmailView() {
                   <p className="text-sm text-surface-200/70 whitespace-pre-wrap">{selected.snippet}</p>
                 )}
               </div>
+
+              {/* Reply — fully operational from right here */}
+              <ReplyBox
+                key={selected.id}
+                thread={selected}
+                detail={detail}
+                onSent={() => markProcessed(selected.id)}
+              />
             </div>
           )}
         </div>
