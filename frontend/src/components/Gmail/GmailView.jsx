@@ -4,7 +4,7 @@ import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle,
 import ElenaLogo from '../shared/ElenaLogo';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
-import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
+import { ElenaBadge, OrganizeButton } from '../shared/ElenaOrganize';
 
 // Cached threads — shown instantly on revisit while fresh data loads behind a spinner
 const GMAIL_CACHE_KEY = 'corey-gmail-threads-cache';
@@ -204,7 +204,6 @@ export default function GmailView() {
   const [elenaLabels, setElenaLabels] = useState({}); // threadId -> {urgency,label,reason,priority}
   const [organizing, setOrganizing] = useState(false);
   const [organizedAt, setOrganizedAt] = useState(null);
-  const [panelOpen, setPanelOpen] = useState(false);
   const listRef = useRef(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'https://corey-portal-api-production.up.railway.app/api';
@@ -273,7 +272,6 @@ export default function GmailView() {
       const data = await api.gmailOrganize();
       setElenaLabels(indexLabels(data.labels));
       setOrganizedAt(data.organizedAt);
-      setPanelOpen(true);
     } catch (e) {
       console.error('Organize failed:', e);
     }
@@ -423,17 +421,6 @@ export default function GmailView() {
           </div>
         </form>
       </div>
-
-      <PriorityPanel
-        labels={unreadLabels}
-        itemLookup={(id) => {
-          const t = threads.find(x => x.id === id);
-          return t ? { ...t, title: `${t.from?.split('<')[0]?.trim() || ''}: ${t.subject || ''}` } : null;
-        }}
-        open={panelOpen}
-        onToggle={() => setPanelOpen(p => !p)}
-        onSelect={selectThread}
-      />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div ref={listRef} onScroll={handleScroll} className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>

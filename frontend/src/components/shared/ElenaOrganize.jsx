@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader } from 'lucide-react';
 import ElenaLogo from './ElenaLogo';
 
 // One meaning per color, everywhere:
@@ -38,45 +38,6 @@ export function OrganizeButton({ onClick, loading, count, organizedAt }) {
         <span className="text-[10px] text-surface-200/30">
           {count > 0 ? `${count} labeled` : 'organized'} · saved
         </span>
-      )}
-    </div>
-  );
-}
-
-// Collapsible "Elena's priority order" panel listing unreads top-down
-export function PriorityPanel({ labels, itemLookup, open, onToggle, onSelect }) {
-  if (!labels?.length) return null;
-  return (
-    <div className="rounded-xl border border-brand-600/20 bg-brand-600/5 overflow-hidden">
-      <button onClick={onToggle} className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-brand-600/10 transition">
-        <ElenaLogo size={16} />
-        <span className="text-sm font-semibold text-brand-400">Elena's priority order</span>
-        <span className="text-xs text-surface-200/40">({labels.length} unread)</span>
-        {open ? <ChevronUp size={14} className="ml-auto text-surface-200/40" /> : <ChevronDown size={14} className="ml-auto text-surface-200/40" />}
-      </button>
-      {open && (
-        <div className="divide-y divide-surface-200/5">
-          {labels.map((l, i) => {
-            const item = itemLookup?.(l.id);
-            const u = URGENCY_META[l.urgency] || URGENCY_META.today;
-            return (
-              <div
-                key={l.id}
-                onClick={() => item && onSelect?.(item)}
-                className={`flex items-start gap-3 px-4 py-2.5 ${item ? 'cursor-pointer hover:bg-surface-200/5' : 'opacity-50'} transition`}
-              >
-                <span className="text-xs font-mono text-surface-200/30 pt-0.5 w-5 shrink-0">{i + 1}.</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <ElenaBadge info={l} compact />
-                    <span className="text-sm font-medium truncate">{item?.title || l.id}</span>
-                  </div>
-                  {l.reason && <p className="text-xs text-surface-200/40 mt-0.5">{l.reason}</p>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
       )}
     </div>
   );

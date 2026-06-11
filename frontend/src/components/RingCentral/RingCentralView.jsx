@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
-import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
+import { ElenaBadge, OrganizeButton } from '../shared/ElenaOrganize';
 import { usePatientName } from '../../hooks/usePatientName';
 
 const PAGE_SIZE = 30;
@@ -57,7 +57,6 @@ export default function RingCentralView() {
   const [elenaLabels, setElenaLabels] = useState({}); // contact -> {urgency,label,reason,priority}
   const [organizing, setOrganizing] = useState(false);
   const [organizedAt, setOrganizedAt] = useState(null);
-  const [panelOpen, setPanelOpen] = useState(false);
   const listRef = useRef(null);
 
   function indexLabels(arr) {
@@ -103,7 +102,6 @@ export default function RingCentralView() {
       const data = await api.rcOrganize();
       setElenaLabels(indexLabels(data.labels));
       setOrganizedAt(data.organizedAt);
-      setPanelOpen(true);
     } catch (e) {
       console.error('Organize failed:', e);
     }
@@ -197,19 +195,6 @@ export default function RingCentralView() {
       </div>
 
       <OrganizeButton onClick={handleOrganize} loading={organizing} count={unreadLabels.length} organizedAt={organizedAt} />
-
-      <PriorityPanel
-        labels={unreadLabels}
-        itemLookup={(id) => {
-          const c = conversations.find(x => x.contact === id);
-          if (!c) return null;
-          const last = (c.messages || [])[0];
-          return { ...c, title: `${c.contact}: ${(last?.text || '').slice(0, 60)}` };
-        }}
-        open={panelOpen}
-        onToggle={() => setPanelOpen(p => !p)}
-        onSelect={(c) => { setSelected(c); setSummary(null); }}
-      />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div ref={listRef} onScroll={handleScroll} className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
