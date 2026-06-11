@@ -12,11 +12,13 @@ import AssistantView from './components/Assistant/AssistantView';
 import ProjectsView from './components/Projects/ProjectsView';
 import NotesView from './components/Notes/NotesView';
 import TrashView from './components/Trash/TrashView';
+import SnoozedView from './components/Snoozed/SnoozedView';
 import SubmitView from './components/Submit/SubmitView';
 import ParkingLot from './components/Focus/ParkingLot';
 import HyperfocusGuard from './components/Focus/HyperfocusGuard';
 import KeyboardNav from './components/Focus/KeyboardNav';
 import ApiActivityIndicator from './components/shared/ApiActivityIndicator';
+import HelpMode from './components/shared/HelpMode';
 
 function PortalLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -59,6 +61,7 @@ export default function App() {
   return (
     <>
     <ApiActivityIndicator />
+    <HelpMode />
     <Routes>
       {/* Employee submission page — standalone, no sidebar */}
       <Route path="/submit" element={<SubmitView />} />
@@ -70,6 +73,7 @@ export default function App() {
             <Route path="/" element={<DashboardWithNav />} />
             <Route path="/gmail" element={<GmailView />} />
             <Route path="/questions" element={<QAView />} />
+            <Route path="/snoozed" element={<SnoozedView />} />
             <Route path="/ringcentral" element={<RingCentralView />} />
             {/* <Route path="/slack" element={<SlackView />} /> */}
             <Route path="/projects" element={<ProjectsView />} />

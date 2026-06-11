@@ -523,7 +523,7 @@ function AddToDo({ onAdd }) {
 }
 
 // ─── Task Card ───────────────────────────────────────────
-function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze, isCompany, team, statusLabel }) {
+function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze, isCompany, team, statusLabel, onReorder }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [showMenu, setShowMenu] = useState(false);
@@ -558,6 +558,28 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze, isCompany, team
     onUpdate(task.id, { energy: order[(order.indexOf(task.energy || 'normal') + 1) % order.length] });
   }
 
+  const [dropPos, setDropPos] = useState(null); // 'before' | 'after' — reorder indicator
+
+  function handleCardDragOver(e) {
+    if (!onReorder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropPos(e.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+  }
+
+  function handleCardDrop(e) {
+    if (!onReorder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const draggedId = e.dataTransfer.getData('taskId');
+    const pos = dropPos;
+    setDropPos(null);
+    if (draggedId && Number(draggedId) !== task.id && pos) {
+      onReorder(Number(draggedId), task.id, pos);
+    }
+  }
+
   return (
     <div
       draggable
@@ -566,13 +588,16 @@ function TaskCard({ task, onUpdate, onDelete, onFocus, onSnooze, isCompany, team
         e.dataTransfer.setData('fromColumn', String(task.column_id));
         e.dataTransfer.setData('fromAssignee', task.assignee || '');
       }}
+      onDragOver={handleCardDragOver}
+      onDragLeave={() => setDropPos(null)}
+      onDrop={handleCardDrop}
       className={`group relative bg-surface-800 border rounded-xl p-3 cursor-grab active:cursor-grabbing transition-all hover:border-surface-200/30 ${
         task.completed ? 'opacity-40 border-surface-200/5'
         : snoozed ? 'opacity-50 border-surface-200/10 border-dashed'
         : overdue ? 'border-red-500/40'
         : stale ? 'border-amber-500/20'
         : 'border-surface-200/10'
-      }`}
+      } ${dropPos === 'before' ? 'border-t-2 border-t-brand-400' : ''} ${dropPos === 'after' ? 'border-b-2 border-b-brand-400' : ''}`}
     >
       <div className="flex items-start gap-2">
         <GripVertical size={14} className="text-surface-200/20 mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition" />
@@ -800,7 +825,7 @@ function QuickAdd({ onAdd, placeholder }) {
 }
 
 // ─── Kanban Column (status view) ─────────────────────────
-function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onDeleteTask, onMoveTask, onFocusTask, onSnoozeTask, isCompany, team }) {
+function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onDeleteTask, onMoveTask, onFocusTask, onSnoozeTask, isCompany, team, onReorder }) {
   const [dragOver, setDragOver] = useState(false);
 
   function handleDrop(e) {
@@ -852,6 +877,7 @@ function KanbanColumn({ column, tasks, hiddenCount, onAddTask, onUpdateTask, onD
             onUpdate={onUpdateTask} onDelete={onDeleteTask}
             onFocus={onFocusTask} onSnooze={onSnoozeTask}
             isCompany={isCompany} team={team}
+            onReorder={onReorder}
           />
         ))}
         <QuickAdd placeholder={`+ Add to ${column.name}...`} onAdd={(title) => onAddTask(title, column.id)} />
@@ -1232,6 +1258,36 @@ export default function ProjectsView() {
     }
   }
 
+  // Drag one task onto another: insert before/after it (top/bottom ordering)
+  async function reorderTask(draggedId, targetTaskId, pos) {
+    const target = tasks.find(t => t.id === targetTaskId);
+    const dragged = tasks.find(t => t.id === draggedId);
+    if (!target || !dragged) return;
+    const colId = target.column_id;
+
+    const colTasks = tasks
+      .filter(t => t.column_id === colId && t.id !== draggedId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const idx = colTasks.findIndex(t => t.id === targetTaskId);
+    const insertAt = pos === 'before' ? idx : idx + 1;
+    colTasks.splice(insertAt, 0, dragged);
+    const orderedIds = colTasks.map(t => t.id);
+
+    // Optimistic: apply new column + order locally
+    setTasks(prev => prev.map(t => {
+      const newIdx = orderedIds.indexOf(t.id);
+      if (newIdx !== -1) return { ...t, column_id: colId, sort_order: newIdx };
+      return t;
+    }));
+
+    try { await api.projectColumnReorder(activeProjectId, colId, orderedIds); }
+    catch (err) {
+      console.error('Reorder error:', err);
+      const data = await api.projectBoard(activeProjectId);
+      setTasks(data.tasks);
+    }
+  }
+
   function snoozeTask(taskId, days) {
     const until = new Date();
     until.setDate(until.getDate() + days);
@@ -1492,6 +1548,7 @@ export default function ProjectsView() {
                 onDeleteTask={deleteTask} onMoveTask={moveTask}
                 onFocusTask={enterFocus} onSnoozeTask={snoozeTask}
                 isCompany={isCompany} team={team}
+                onReorder={reorderTask}
               />
             );
           })}

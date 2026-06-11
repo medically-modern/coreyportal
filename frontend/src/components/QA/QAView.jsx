@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw, Paperclip, Download, FileText, Zap, LayoutList, SkipForward, AlarmClock, CheckCircle2, Clock, Eye, ExternalLink } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
+import { snoozeItem, isSnoozed, subscribeSnooze } from '../../utils/snoozeStore';
 
 const URGENCY_CONFIG = {
   emergency:  { label: 'EMERGENCY', bg: 'bg-red-700',       border: 'border-red-700',       text: 'text-red-100',    dot: 'bg-red-500',    glow: 'shadow-lg shadow-red-500/20',    order: 0 },
@@ -309,10 +310,17 @@ function SnoozePicker({ onSnooze, onClose }) {
 
 function QuestionFocusView({ questions, onArchive, loading }) {
   const [skipped, setSkipped] = useState(new Set());
-  const [snoozed, setSnoozed] = useState(new Map());
   const [done, setDone] = useState(new Set());
   const [showSnoozePicker, setShowSnoozePicker] = useState(false);
   const [showDone, setShowDone] = useState(false);
+  const [, setSnoozeTick] = useState(0);
+
+  // Re-render when snoozed items change or wake up
+  useEffect(() => {
+    const unsub = subscribeSnooze(() => setSnoozeTick(t => t + 1));
+    const t = setInterval(() => setSnoozeTick(tk => tk + 1), 30 * 1000);
+    return () => { unsub(); clearInterval(t); };
+  }, []);
 
   const sorted = [...questions].sort((a, b) => {
     const d = getUrgency(a).order - getUrgency(b).order;
@@ -320,7 +328,7 @@ function QuestionFocusView({ questions, onArchive, loading }) {
     return new Date(b.created_at) - new Date(a.created_at);
   });
 
-  const active = sorted.filter(q => !skipped.has(q.id) && !snoozed.has(q.id) && !done.has(q.id));
+  const active = sorted.filter(q => !skipped.has(q.id) && !done.has(q.id) && !isSnoozed(`qa:${q.id}`));
   const current = active[0];
   const total = sorted.length;
   const handled = done.size + skipped.size;
@@ -357,14 +365,11 @@ function QuestionFocusView({ questions, onArchive, loading }) {
   }
 
   function handleSnooze(ms) {
-    const id = current.id;
-    setSnoozed(prev => new Map(prev).set(id, true));
-    setTimeout(() => {
-      setSnoozed(prev => {
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
+    // Persistent: survives reloads, visible in the Snoozed view, auto-returns
+    snoozeItem(`qa:${current.id}`, {
+      channel: 'qa',
+      title: current.headline || mainQuestion?.slice(0, 80) || '',
+      from: current.from_name || 'Team',
     }, ms);
   }
 

@@ -175,6 +175,7 @@ export const api = {
   projectTaskUpdate: (projectId, taskId, data) => request(`/projects/${projectId}/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   projectTaskDelete: (projectId, taskId) => request(`/projects/${projectId}/tasks/${taskId}`, { method: 'DELETE' }),
   projectTaskMove: (projectId, taskId, data) => request(`/projects/${projectId}/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  projectColumnReorder: (projectId, columnId, taskIds) => request(`/projects/${projectId}/columns/${columnId}/reorder`, { method: 'POST', body: JSON.stringify({ taskIds }) }),
   projectTaskBreakdown: (projectId, taskId) => request(`/projects/${projectId}/tasks/${taskId}/breakdown`, { method: 'POST' }),
   projectMemberAdd: (projectId, name) => request(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify({ name }) }),
   projectMemberRemove: (projectId, memberId) => request(`/projects/${projectId}/members/${memberId}`, { method: 'DELETE' }),

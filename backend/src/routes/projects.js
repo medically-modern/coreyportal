@@ -145,12 +145,25 @@ router.patch('/:id', (req, res) => {
 
 // ---- BOARD (columns + tasks for a project) ----
 
+// The core team is hard-coded — always present on every project board
+const DEFAULT_MEMBERS = ['Brandon', 'Josh', 'Me', 'Janelle'];
+
+function ensureDefaultMembers(db, projectId) {
+  const check = db.prepare('SELECT id FROM project_members WHERE project_id = ? AND name = ? COLLATE NOCASE');
+  const ins = db.prepare('INSERT INTO project_members (project_id, name) VALUES (?, ?)');
+  for (const name of DEFAULT_MEMBERS) {
+    if (!check.get(projectId, name)) ins.run(projectId, name);
+  }
+}
+
 router.get('/:id/board', (req, res) => {
   try {
     ensureTables();
     const db = getDb();
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    ensureDefaultMembers(db, req.params.id);
 
     const columns = db.prepare(
       'SELECT * FROM project_columns WHERE project_id = ? ORDER BY sort_order'
@@ -294,9 +307,30 @@ router.post('/:projectId/tasks/:taskId/move', (req, res) => {
   }
 });
 
+// Reorder tasks within a column — body: { taskIds: [...] } in display order
+router.post('/:projectId/columns/:columnId/reorder', (req, res) => {
+  try {
+    ensureTables();
+    const db = getDb();
+    const { taskIds } = req.body;
+    if (!Array.isArray(taskIds)) return res.status(400).json({ error: 'taskIds array required' });
+    const upd = db.prepare(
+      'UPDATE project_tasks SET sort_order = ?, column_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND project_id = ?'
+    );
+    const tx = db.transaction(() => {
+      taskIds.forEach((id, i) => upd.run(i, req.params.columnId, id, req.params.projectId));
+    });
+    tx();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- TEAM MEMBERS ----
 
 router.get('/:id/members', (req, res) => {
+  try { ensureDefaultMembers(getDb(), req.params.id); } catch {}
   try {
     ensureTables();
     const db = getDb();

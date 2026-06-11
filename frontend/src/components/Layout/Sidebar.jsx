@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Mail, MessageSquare, Phone,
-  ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote, Trash2
+  ChevronLeft, ChevronRight, HelpCircle, FolderKanban, StickyNote, Trash2, AlarmClock
 } from 'lucide-react';
 import ElenaLogo from '../shared/ElenaLogo';
+import { snoozedList, subscribeSnooze } from '../../utils/snoozeStore';
 
 const NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -12,12 +13,21 @@ const NAV = [
   { to: '/ringcentral', icon: Phone, label: 'Texts & Calls' },
   // { to: '/slack', icon: MessageSquare, label: 'Slack' },  // hidden per Corey's request
   { to: '/questions', icon: HelpCircle, label: 'Team Questions' },
+  { to: '/snoozed', icon: AlarmClock, label: 'Snoozed' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
   { to: '/notes', icon: StickyNote, label: 'Parking Lot' },
   { to: '/trash', icon: Trash2, label: 'Trash' },
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
+  const [snoozedCount, setSnoozedCount] = useState(snoozedList().length);
+
+  useEffect(() => {
+    const unsub = subscribeSnooze(() => setSnoozedCount(snoozedList().length));
+    const t = setInterval(() => setSnoozedCount(snoozedList().length), 60 * 1000);
+    return () => { unsub(); clearInterval(t); };
+  }, []);
+
   return (
     <aside className={`fixed top-0 left-0 h-screen bg-surface-900 border-r border-surface-200/10 flex flex-col transition-all duration-200 z-30 ${collapsed ? 'w-16' : 'w-56'}`}>
       <div className="h-16 flex items-center px-4 border-b border-surface-200/10">
@@ -41,6 +51,9 @@ export default function Sidebar({ collapsed, onToggle }) {
           >
             <Icon size={20} />
             {!collapsed && label}
+            {to === '/snoozed' && snoozedCount > 0 && !collapsed && (
+              <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full font-semibold">{snoozedCount}</span>
+            )}
           </NavLink>
         ))}
       </nav>

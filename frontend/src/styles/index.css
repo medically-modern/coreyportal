@@ -57,6 +57,19 @@
   opacity: 0.45;
 }
 
+/* ── F4 Help Mode — outline everything that's interactive ── */
+.help-mode button,
+.help-mode a,
+.help-mode input,
+.help-mode textarea,
+.help-mode select,
+.help-mode [role="button"],
+.help-mode [data-help] {
+  outline: 1.5px dashed rgba(109, 163, 166, 0.55) !important; /* brand-400 */
+  outline-offset: 2px;
+  cursor: help !important;
+}
+
 /* ── ADHD Focus Animations ── */
 
 /* Subtle pulse for overdue items (>24h) */

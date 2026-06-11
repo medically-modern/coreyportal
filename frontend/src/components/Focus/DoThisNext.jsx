@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import ElenaLogo from '../shared/ElenaLogo';
 import { fmtSmartET } from '../../utils/time';
 import { usePatientName } from '../../hooks/usePatientName';
+import { snoozeItem, isSnoozed, snoozeKeyFor, subscribeSnooze } from '../../utils/snoozeStore';
 
 // Header for texts — patient name BIG over the whole card, phone stays small
 function TextHeader({ phone, tag }) {
@@ -400,8 +401,8 @@ function ReplyCompose({ current, elenaStructured, onSent }) {
 
 export default function DoThisNext({ emailData, slackData, rcData, questions, onDismiss, onNavigate, elenaEnabled = true }) {
   const [dismissed, setDismissed] = useState(new Set());
-  const [snoozed, setSnoozed] = useState(new Map());
   const [completed, setCompleted] = useState(new Set());
+  const [snoozeTick, setSnoozeTick] = useState(0); // re-render when snoozes change/expire
   const [showDone, setShowDone] = useState(false);
   const [showSnoozePicker, setShowSnoozePicker] = useState(false);
   const [elenaContext, setElenaContext] = useState(null);
@@ -454,6 +455,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         urgent: q.urgency === 'emergency' || q.urgency === 'super_high' || q.urgency === 'high',
         channel: 'qa',
         id: `qa-${i}`,
+        qaId: q.id,
         from: q.from_name || q.from || 'Team',
         subject: q.headline || q.question?.split('\n')[0]?.slice(0, 80) || '',
         snippet: q.question || '',
@@ -464,8 +466,15 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
     return items.sort((a, b) => getUrgencyScore(b) - getUrgencyScore(a));
   }, [emailData, slackData, rcData, questions]);
 
+  // Re-render when snoozed items change or wake up
+  useEffect(() => {
+    const unsub = subscribeSnooze(() => setSnoozeTick(t => t + 1));
+    const t = setInterval(() => setSnoozeTick(tk => tk + 1), 30 * 1000);
+    return () => { unsub(); clearInterval(t); };
+  }, []);
+
   const activeItems = allItems.filter(item =>
-    !dismissed.has(item.id) && !snoozed.has(item.id) && !completed.has(item.id)
+    !dismissed.has(item.id) && !completed.has(item.id) && !isSnoozed(snoozeKeyFor(item))
   );
 
   const current = activeItems[0];
@@ -552,14 +561,11 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
   }
 
   function handleSnooze(durationMs) {
-    const id = current.id;
-    setSnoozed(prev => new Map(prev).set(id, true));
-    setTimeout(() => {
-      setSnoozed(prev => {
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
+    // Persistent: survives reloads, visible in the Snoozed view, auto-returns
+    snoozeItem(snoozeKeyFor(current), {
+      channel: current.channel,
+      title: current.subject || current.text || '',
+      from: current.from || '',
     }, durationMs);
   }
 
