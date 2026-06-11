@@ -167,6 +167,7 @@ export default function RingCentralView() {
   const [organizing, setOrganizing] = useState(false);
   const [organizedAt, setOrganizedAt] = useState(null);
   const listRef = useRef(null);
+  const detailRef = useRef(null);
 
   function indexLabels(arr) {
     const map = {};
@@ -238,6 +239,15 @@ export default function RingCentralView() {
   }
 
   useEffect(() => { loadMessages(); loadSavedLabels(); }, []);
+
+  // Opening a conversation lands at the BOTTOM — most recent texts first in view
+  useEffect(() => {
+    if (!selected) return;
+    requestAnimationFrame(() => {
+      const el = detailRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [selected?.contact, selected?.messages?.length]);
 
   // Name search → resolve to phones via Monday patient index (debounced)
   useEffect(() => {
@@ -433,7 +443,7 @@ export default function RingCentralView() {
           )}
         </div>
 
-        <div className="lg:col-span-3 card max-h-[70vh] overflow-y-auto">
+        <div ref={detailRef} className="lg:col-span-3 card max-h-[70vh] overflow-y-auto">
           {!selected ? (
             <p className="text-surface-200/40 text-sm py-8 text-center">Select a conversation to view</p>
           ) : (
