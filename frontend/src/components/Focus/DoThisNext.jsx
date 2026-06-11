@@ -5,17 +5,18 @@ import ElenaLogo from '../shared/ElenaLogo';
 import { fmtSmartET } from '../../utils/time';
 import { usePatientName } from '../../hooks/usePatientName';
 
-// "From:" line for texts — patient name resolved from Monday, phone stays put
-function TextFromLine({ phone, tag }) {
+// Header for texts — patient name BIG over the whole card, phone stays small
+function TextHeader({ phone, tag }) {
   const name = usePatientName(phone);
   return (
-    <p className="text-xs text-surface-200/40">
-      From:{' '}
-      {name && <span className="text-white font-semibold">{name}</span>}
-      {name && ' '}
-      <span className="text-surface-200/70 font-medium">{phone}</span>
-      {tag && <span className="ml-2 text-surface-200/30">· {tag}</span>}
-    </p>
+    <div className="pb-1">
+      <h2 className="text-2xl font-bold text-white leading-tight">{name || phone}</h2>
+      <p className="text-xs text-surface-200/40 mt-0.5">
+        {name && <span>{phone}</span>}
+        {name && tag && <span> · </span>}
+        {tag && <span>{tag}</span>}
+      </p>
+    </div>
   );
 }
 
@@ -614,7 +615,7 @@ export default function DoThisNext({ emailData, slackData, rcData, questions, on
         <div className="space-y-2 mb-4">
           {current.from && (
             isText ? (
-              <TextFromLine phone={current.from} tag={current.tag} />
+              <TextHeader phone={current.from} tag={current.tag} />
             ) : (
               <p className="text-xs text-surface-200/40">
                 From: <span className="text-surface-200/70 font-medium">{current.from}</span>

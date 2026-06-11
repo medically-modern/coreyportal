@@ -15,33 +15,28 @@ function emitActivity(evt) {
   }
 }
 
-function friendlyLabel(path, method = 'GET') {
+// Only Elena/Claude AI calls produce a notification — plain data fetches
+// (threads, messages, saved labels, patient lookups) stay silent.
+// These paths are the ONLY places the app spends AI tokens, and every one
+// of them is triggered by an explicit button press or chat message.
+function elenaCallLabel(path, method = 'GET') {
   const p = path.split('?')[0];
   if (p.includes('/organize') && method === 'POST') return 'Elena organizing...';
   if (p.includes('/summarize')) return 'Elena summarizing...';
-  if (p.includes('/draft-reply')) return 'Elena drafting...';
+  if (p.includes('/triage')) return 'Elena triaging...';
+  if (p.includes('/draft-reply') || p.includes('/ai-draft')) return 'Elena drafting...';
   if (p.includes('/briefing')) return 'Elena briefing...';
   if (p.includes('/focus-context')) return "Elena's take...";
-  if (p.includes('/monday/search')) return 'Matching patient...';
-  const area =
-    p.startsWith('/gmail') ? 'email' :
-    p.startsWith('/ringcentral') ? 'texts' :
-    p.startsWith('/qa') ? 'team questions' :
-    p.startsWith('/assistant') || p.startsWith('/elena') || p.startsWith('/context') ? 'Elena' :
-    p.startsWith('/slack') ? 'Slack' :
-    p.startsWith('/monday') ? 'Monday' :
-    p.startsWith('/notes') ? 'notes' :
-    p.startsWith('/projects') ? 'projects' :
-    p.startsWith('/trash') ? 'trash' :
-    p.startsWith('/health') ? 'status' :
-    'data';
-  const verb = method === 'GET' ? 'Loading' : 'Sending';
-  return `${verb} ${area}...`;
+  if (p.includes('/breakdown')) return 'Elena breaking it down...';
+  if (p === '/assistant/chat') return 'Elena thinking...';
+  return null; // not an AI call — no notification
 }
 
 export function trackApiCall(path, method = 'GET') {
+  const label = elenaCallLabel(path, method);
+  if (!label) return { done: () => {}, fail: () => {} };
   const id = ++reqSeq;
-  emitActivity({ type: 'start', id, label: friendlyLabel(path, method) });
+  emitActivity({ type: 'start', id, label });
   return {
     done: () => emitActivity({ type: 'end', id }),
     fail: () => emitActivity({ type: 'end', id, error: true }),
@@ -130,6 +125,7 @@ export const api = {
     }
   },
   qaAttachmentUrl: (attachmentId) => `${API_BASE}/qa/attachments/${attachmentId}/download`,
+  qaAttachmentViewUrl: (attachmentId) => `${API_BASE}/qa/attachments/${attachmentId}/view`,
   qaDeleteAttachment: (attachmentId) => request(`/qa/attachments/${attachmentId}`, { method: 'DELETE' }),
   submitQuestion: (data) => request('/qa/questions', { method: 'POST', body: JSON.stringify(data) }),
   answerQuestion: (id, answer) => request(`/qa/questions/${id}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),

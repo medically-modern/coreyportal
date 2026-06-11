@@ -178,6 +178,27 @@ router.get('/attachments/:id/download', (req, res) => {
   }
 });
 
+// View an attachment INLINE (no download) — used by the in-site PDF/image viewer.
+// Content-Disposition: inline lets the browser render it inside an iframe.
+router.get('/attachments/:id/view', (req, res) => {
+  try {
+    const db = getDb();
+    const att = db.prepare('SELECT * FROM question_attachments WHERE id = ?').get(req.params.id);
+    if (!att) return res.status(404).json({ error: 'Not found' });
+    const filePath = join(UPLOAD_DIR, att.stored_name);
+    if (!existsSync(filePath)) return res.status(404).json({ error: 'File missing on disk' });
+
+    // The portal is on a different origin (github.io) — allow it to iframe this response
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://medically-modern.github.io http://localhost:* http://127.0.0.1:*");
+    if (att.mime) res.setHeader('Content-Type', att.mime);
+    res.setHeader('Content-Disposition', `inline; filename="${(att.original_name || 'file').replace(/"/g, '')}"`);
+    res.sendFile(filePath);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Delete an attachment (soft — goes to Trash; file stays on disk until Trash is emptied)
 router.delete('/attachments/:id', (req, res) => {
   try {

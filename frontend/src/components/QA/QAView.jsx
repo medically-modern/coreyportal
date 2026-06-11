@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw, Paperclip, Download, FileText, Zap, LayoutList, SkipForward, AlarmClock, CheckCircle2, Clock } from 'lucide-react';
+import { RefreshCw, Loader, X, User, Tag, ArrowUpDown, Archive, RotateCcw, Paperclip, Download, FileText, Zap, LayoutList, SkipForward, AlarmClock, CheckCircle2, Clock, Eye, ExternalLink } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
 
@@ -73,11 +73,57 @@ function QuestionCard({ q, onClick, onRestore }) {
   );
 }
 
+// File types the browser can render natively in an iframe (no download needed)
+function isViewable(att) {
+  const name = (att.original_name || '').toLowerCase();
+  const mime = (att.mime || '').toLowerCase();
+  return mime.includes('pdf') || mime.startsWith('image/') || mime.startsWith('text/')
+    || /\.(pdf|png|jpe?g|gif|txt|csv)$/.test(name);
+}
+
+// ── In-site attachment viewer — renders PDFs/images inline, nothing downloads ──
+function AttachmentViewer({ att, onClose }) {
+  const isImage = (att.mime || '').startsWith('image/') || /\.(png|jpe?g|gif)$/i.test(att.original_name || '');
+  const url = api.qaAttachmentViewUrl(att.id);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-8">
+      <div className="absolute inset-0 bg-surface-900/90 backdrop-blur-md" onClick={onClose} />
+      <div className="relative w-full h-full max-w-5xl bg-surface-800 border border-surface-200/15 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-surface-200/10 bg-surface-900/50">
+          <FileText size={15} className="text-brand-400 shrink-0" />
+          <span className="text-sm font-semibold truncate flex-1">{att.original_name}</span>
+          <a href={api.qaAttachmentUrl(att.id)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-200/10 hover:bg-surface-200/15 text-surface-200/70 text-xs transition" title="Download a copy">
+            <Download size={12} /> Download
+          </a>
+          <a href={url} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-200/10 hover:bg-surface-200/15 text-surface-200/70 text-xs transition" title="Open in new tab">
+            <ExternalLink size={12} />
+          </a>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-surface-200/10 text-surface-200/50 hover:text-white transition">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 bg-surface-900/60 min-h-0">
+          {isImage ? (
+            <div className="w-full h-full overflow-auto flex items-center justify-center p-4">
+              <img src={url} alt={att.original_name} className="max-w-full max-h-full object-contain rounded-lg" />
+            </div>
+          ) : (
+            <iframe src={url} title={att.original_name} className="w-full h-full border-0" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Attachments block (shared by modal + focus view) ──
 function AttachmentsBlock({ question }) {
   const [attachments, setAttachments] = useState(question.attachments || []);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [viewing, setViewing] = useState(null);
 
   useEffect(() => { setAttachments(question.attachments || []); }, [question.id]);
 
@@ -115,16 +161,30 @@ function AttachmentsBlock({ question }) {
           {attachments.map(att => (
             <div key={att.id} className="group flex items-center gap-2 bg-surface-200/5 hover:bg-surface-200/10 rounded-lg px-3 py-2 text-sm transition">
               <FileText size={14} className="text-brand-400 shrink-0" />
-              <a
-                href={api.qaAttachmentUrl(att.id)}
-                target="_blank" rel="noreferrer"
-                className="flex-1 truncate text-surface-200/80 hover:text-white hover:underline"
-                title={`Download ${att.original_name}`}
-              >
-                {att.original_name}
-              </a>
+              {isViewable(att) ? (
+                <button
+                  onClick={() => setViewing(att)}
+                  className="flex-1 truncate text-left text-surface-200/80 hover:text-white hover:underline"
+                  title={`View ${att.original_name}`}
+                >
+                  {att.original_name}
+                </button>
+              ) : (
+                <a
+                  href={api.qaAttachmentUrl(att.id)}
+                  className="flex-1 truncate text-surface-200/80 hover:text-white hover:underline"
+                  title={`Download ${att.original_name}`}
+                >
+                  {att.original_name}
+                </a>
+              )}
               <span className="text-xs text-surface-200/30">{fmtSize(att.size)}</span>
               {att.uploaded_by === 'corey' && <span className="text-[10px] text-surface-200/25">you</span>}
+              {isViewable(att) && (
+                <button onClick={() => setViewing(att)} className="flex items-center gap-1 text-surface-200/30 hover:text-brand-400 transition text-xs" title="View in site — no download">
+                  <Eye size={13} /> View
+                </button>
+              )}
               <a href={api.qaAttachmentUrl(att.id)} className="text-surface-200/30 hover:text-brand-400 transition" title="Download">
                 <Download size={13} />
               </a>
@@ -146,6 +206,7 @@ function AttachmentsBlock({ question }) {
         />
       </label>
       {uploadError && <p className="text-xs text-urgent mt-1">{uploadError}</p>}
+      {viewing && <AttachmentViewer att={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

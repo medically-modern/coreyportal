@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Loader, AlertTriangle } from 'lucide-react';
 import { onApiActivity } from '../../services/api';
+import ElenaLogo from './ElenaLogo';
 
-// Small bottom-right indicator that appears whenever an API call is in flight.
-// Sits left of the Parking Lot bubble. Muted on purpose — informative, not distracting.
+// Small bottom-right indicator — ONLY appears when Elena (Claude AI) is
+// actively working, i.e. when tokens are being spent. Plain data fetches
+// never show here. Sits left of the Parking Lot bubble.
 const MAX_VISIBLE = 3;
 const ERROR_LINGER_MS = 2500;
 
@@ -52,9 +54,10 @@ export default function ApiActivityIndicator() {
         </div>
       ))}
       {visible.map(a => (
-        <div key={a.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-800/95 border border-surface-200/10 shadow-lg shadow-black/20 animate-slide-up">
+        <div key={a.id} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-800/95 border border-brand-600/30 shadow-lg shadow-black/20 animate-slide-up">
+          <ElenaLogo size={12} />
           <Loader size={10} className="animate-spin text-brand-400" />
-          <span className="text-[11px] text-surface-200/60">{a.label}</span>
+          <span className="text-[11px] text-brand-300">{a.label}</span>
         </div>
       ))}
       {hidden > 0 && (
