@@ -73,11 +73,12 @@ export async function checkConnection() {
   }
 }
 
-export async function getThreads({ maxResults = 20, q = '', labelIds = ['INBOX'] } = {}) {
+export async function getThreads({ maxResults = 20, q = '', labelIds = ['INBOX'], pageToken = null } = {}) {
   const gmail = getGmail();
-  
+
   const params = { userId: 'me', maxResults, labelIds };
   if (q) params.q = q;
+  if (pageToken) params.pageToken = pageToken;
 
   const res = await gmail.users.threads.list(params);
   const threads = res.data.threads || [];
@@ -107,7 +108,7 @@ export async function getThreads({ maxResults = 20, q = '', labelIds = ['INBOX']
     })
   );
 
-  return detailed;
+  return { threads: detailed, nextPageToken: res.data.nextPageToken || null };
 }
 
 export async function getThread(threadId) {

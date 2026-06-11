@@ -306,11 +306,13 @@ router.post('/briefing', async (req, res) => {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const dateStr = thirtyDaysAgo.toISOString().split('T')[0].replace(/-/g, '/');
-        const [unreadThreads, allRecent, unreadCount] = await Promise.all([
+        const [unreadRes, recentRes, unreadCount] = await Promise.all([
           getThreads({ maxResults: 200, q: `is:unread after:${dateStr}` }),
           getThreads({ maxResults: 20 }),
           getUnreadCount()
         ]);
+        const unreadThreads = unreadRes.threads;
+        const allRecent = recentRes.threads;
         return { connected: true, unreadThreads, allRecent, unreadCount };
       }),
       rcCheck().then(async (status) => {

@@ -61,8 +61,8 @@ export async function getTextConversations(perPage = 100, daysBack = null) {
     } else {
       hasMore = false;
     }
-    // Safety cap
-    if (allRecords.length > 500) { hasMore = false; }
+    // Cap at 10 pages (matches getAllMessages — stays under RC heavy-tier rate limits)
+    if (allRecords.length > 2500 || page > 10) { hasMore = false; }
   }
 
   const data = { records: allRecords };

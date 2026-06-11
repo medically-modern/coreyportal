@@ -1,19 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle, Circle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Mail, Search, RefreshCw, Loader, ExternalLink, Sparkles, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
+import { ElenaBadge, OrganizeButton, PriorityPanel } from '../shared/ElenaOrganize';
 
-function _unused_timeAgo(dateStr) {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function ThreadRow({ thread, onSelect, selected }) {
+function ThreadRow({ thread, onSelect, selected, elenaInfo }) {
   const unread = thread.isUnread || thread.unread;
   return (
     <div
@@ -34,7 +25,10 @@ function ThreadRow({ thread, onSelect, selected }) {
           </p>
           <span className="text-xs text-surface-200/30 shrink-0 ml-2">{timeAgo(thread.date)}</span>
         </div>
-        <p className={`text-sm truncate ${unread ? 'font-semibold text-surface-200/90' : 'text-surface-200/50'}`}>{thread.subject}</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <p className={`text-sm truncate ${unread ? 'font-semibold text-surface-200/90' : 'text-surface-200/50'}`}>{thread.subject}</p>
+          {elenaInfo && <span className="shrink-0"><ElenaBadge info={elenaInfo} /></span>}
+        </div>
         <p className="text-xs truncate text-surface-200/30 mt-0.5">{thread.snippet}</p>
       </div>
     </div>
@@ -44,29 +38,89 @@ function ThreadRow({ thread, onSelect, selected }) {
 export default function GmailView() {
   const [connected, setConnected] = useState(null);
   const [threads, setThreads] = useState([]);
+  const [nextPageToken, setNextPageToken] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState('');
+  const [searching, setSearching] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [filter, setFilter] = useState('all'); // all | unread
+  const [elenaLabels, setElenaLabels] = useState({}); // threadId -> {urgency,label,reason,priority}
+  const [organizing, setOrganizing] = useState(false);
+  const [organizedAt, setOrganizedAt] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const listRef = useRef(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'https://corey-portal-api-production.up.railway.app/api';
 
+  function indexLabels(arr) {
+    const map = {};
+    for (const l of arr || []) map[l.id] = l;
+    return map;
+  }
+
   async function loadGmail() {
     setLoading(true);
+    setSearching(false);
     try {
       const status = await api.gmailStatus();
       setConnected(status.connected);
       if (status.connected) {
         const data = await api.gmailThreads(50);
-        setThreads(data.threads || data || []);
+        setThreads(data.threads || []);
+        setNextPageToken(data.nextPageToken || null);
       }
     } catch (e) {
       setConnected(false);
     }
     setLoading(false);
+  }
+
+  // Saved Elena labels — loaded once per page view, NO AI call
+  async function loadSavedLabels() {
+    try {
+      const data = await api.gmailOrganizeSaved();
+      if (data.labels?.length) {
+        setElenaLabels(indexLabels(data.labels));
+        setOrganizedAt(data.labels[0]?.created_at || true);
+      }
+    } catch {}
+  }
+
+  const loadMore = useCallback(async () => {
+    if (!nextPageToken || loadingMore || searching) return;
+    setLoadingMore(true);
+    try {
+      const data = await api.gmailThreads(50, nextPageToken);
+      setThreads(prev => {
+        const seen = new Set(prev.map(t => t.id));
+        return [...prev, ...(data.threads || []).filter(t => !seen.has(t.id))];
+      });
+      setNextPageToken(data.nextPageToken || null);
+    } catch {}
+    setLoadingMore(false);
+  }, [nextPageToken, loadingMore, searching]);
+
+  function handleScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) loadMore();
+  }
+
+  async function handleOrganize() {
+    setOrganizing(true);
+    try {
+      const data = await api.gmailOrganize();
+      setElenaLabels(indexLabels(data.labels));
+      setOrganizedAt(data.organizedAt);
+      setPanelOpen(true);
+    } catch (e) {
+      console.error('Organize failed:', e);
+    }
+    setOrganizing(false);
   }
 
   async function selectThread(thread) {
@@ -95,20 +149,38 @@ export default function GmailView() {
     e.preventDefault();
     if (!searchQ.trim()) return loadGmail();
     setLoading(true);
+    setSearching(true);
     try {
       const data = await api.gmailSearch(searchQ);
-      setThreads(data.threads || data || []);
+      setThreads(data.threads || []);
+      setNextPageToken(null);
     } catch (e) {}
     setLoading(false);
   }
 
-  useEffect(() => { loadGmail(); }, []);
+  useEffect(() => { loadGmail(); loadSavedLabels(); }, []);
+
+  // Unreads always float to the top; Elena's priority orders the unreads when available
+  const sortedThreads = [...threads].sort((a, b) => {
+    const aUn = (a.isUnread || a.unread) ? 0 : 1;
+    const bUn = (b.isUnread || b.unread) ? 0 : 1;
+    if (aUn !== bUn) return aUn - bUn;
+    if (aUn === 0) {
+      const ap = elenaLabels[a.id]?.priority ?? 999;
+      const bp = elenaLabels[b.id]?.priority ?? 999;
+      if (ap !== bp) return ap - bp;
+    }
+    return new Date(b.date) - new Date(a.date);
+  });
 
   const filteredThreads = filter === 'unread'
-    ? threads.filter(t => t.isUnread || t.unread)
-    : threads;
+    ? sortedThreads.filter(t => t.isUnread || t.unread)
+    : sortedThreads;
 
   const unreadCount = threads.filter(t => t.isUnread || t.unread).length;
+  const unreadLabels = Object.values(elenaLabels)
+    .filter(l => threads.some(t => t.id === l.id && (t.isUnread || t.unread)))
+    .sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
 
   if (connected === null && loading) {
     return <div className="flex items-center justify-center h-64"><Loader className="animate-spin text-brand-500" size={24} /></div>;
@@ -117,7 +189,7 @@ export default function GmailView() {
   if (connected === false) {
     return (
       <div className="card text-center py-12 space-y-4">
-        <AlertTriangle size={40} className="mx-auto text-yellow-500" />
+        <AlertTriangle size={40} className="mx-auto text-warn" />
         <h2 className="text-lg font-semibold">Gmail Not Connected</h2>
         <p className="text-surface-200/60 text-sm max-w-md mx-auto">
           Gmail needs to be authorized to show emails. Click below to connect.
@@ -134,14 +206,14 @@ export default function GmailView() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold flex items-center gap-2">
           <Mail size={20} /> Email
-          <span className="text-sm font-normal text-surface-200/40">({threads.length} threads, {unreadCount} unprocessed)</span>
+          <span className="text-sm font-normal text-surface-200/40">({threads.length} loaded, {unreadCount} unprocessed)</span>
         </h1>
         <button onClick={loadGmail} className="text-surface-200/40 hover:text-white">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="flex gap-2">
           <button onClick={() => setFilter('all')} className={`text-xs px-3 py-1.5 rounded-full transition ${filter === 'all' ? 'bg-brand-600 text-white' : 'bg-surface-200/10 text-surface-200/60'}`}>
             All ({threads.length})
@@ -150,7 +222,8 @@ export default function GmailView() {
             Unprocessed ({unreadCount})
           </button>
         </div>
-        <form onSubmit={handleSearch} className="flex-1">
+        <OrganizeButton onClick={handleOrganize} loading={organizing} count={unreadLabels.length} organizedAt={organizedAt} />
+        <form onSubmit={handleSearch} className="flex-1 min-w-[200px]">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-200/40" />
             <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Search emails..." className="input pl-9 w-full" />
@@ -158,15 +231,35 @@ export default function GmailView() {
         </form>
       </div>
 
+      <PriorityPanel
+        labels={unreadLabels}
+        itemLookup={(id) => {
+          const t = threads.find(x => x.id === id);
+          return t ? { ...t, title: `${t.from?.split('<')[0]?.trim() || ''}: ${t.subject || ''}` } : null;
+        }}
+        open={panelOpen}
+        onToggle={() => setPanelOpen(p => !p)}
+        onSelect={selectThread}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
+        <div ref={listRef} onScroll={handleScroll} className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
           {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
           {filteredThreads.length === 0 && !loading && (
             <p className="text-sm text-surface-200/40 p-4">No emails found.</p>
           )}
           {filteredThreads.map((t, i) => (
-            <ThreadRow key={t.id || i} thread={t} onSelect={selectThread} selected={selected?.id === t.id} />
+            <ThreadRow key={t.id || i} thread={t} onSelect={selectThread} selected={selected?.id === t.id} elenaInfo={elenaLabels[t.id]} />
           ))}
+          {loadingMore && <div className="p-3 flex justify-center"><Loader size={14} className="animate-spin text-brand-500" /></div>}
+          {!loading && !loadingMore && nextPageToken && (
+            <button onClick={loadMore} className="w-full p-3 text-xs text-brand-400 hover:bg-surface-200/5 transition">
+              Load more...
+            </button>
+          )}
+          {!loading && !nextPageToken && threads.length > 0 && !searching && (
+            <p className="p-3 text-center text-[10px] text-surface-200/25">All emails loaded</p>
+          )}
         </div>
 
         <div className="lg:col-span-3 card max-h-[70vh] overflow-y-auto">
@@ -175,11 +268,15 @@ export default function GmailView() {
           ) : (
             <div className="space-y-4">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   {(selected.isUnread || selected.unread) && <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">Unprocessed</span>}
+                  {elenaLabels[selected.id] && <ElenaBadge info={elenaLabels[selected.id]} />}
                   <h2 className="font-semibold">{selected.subject}</h2>
                 </div>
                 <p className="text-sm text-surface-200/60">{selected.from} · {timeAgo(selected.date)}</p>
+                {elenaLabels[selected.id]?.reason && (
+                  <p className="text-xs text-brand-400/70 mt-1">Elena: {elenaLabels[selected.id].reason}</p>
+                )}
               </div>
 
               <button onClick={summarizeThread} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">

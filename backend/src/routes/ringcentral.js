@@ -9,9 +9,42 @@ import {
   getMissedCalls,
   checkConnection,
 } from '../services/ringcentral.js';
-import { summarize } from '../services/claude.js';
+import { summarize, organizeItems } from '../services/claude.js';
+import { saveLabels, loadLabels } from './gmail.js';
 
 const router = Router();
+
+// Elena organize — reads all unread text conversations, ranks them, persists labels
+router.post('/organize', async (req, res) => {
+  try {
+    const convos = await getTextConversations(250, 90);
+    const unread = convos.filter(c => c.unread > 0);
+    if (unread.length === 0) return res.json({ labels: [], organizedAt: new Date().toISOString() });
+
+    const items = unread.map(c => ({
+      id: c.contact,
+      from: c.contact,
+      snippet: (c.messages || []).slice(0, 5).map(m => `[${m.direction}] ${m.text || ''}`).join(' | ').slice(0, 500),
+      unreadCount: c.unread,
+      date: c.lastMessageTime,
+    }));
+    const labels = await organizeItems(items, 'text');
+    saveLabels('rc', labels);
+    res.json({ labels, organizedAt: new Date().toISOString() });
+  } catch (err) {
+    console.error('RC organize error:', err);
+    res.status(500).json({ error: 'Organize failed', detail: err.message });
+  }
+});
+
+// Saved Elena labels (no AI call)
+router.get('/organize', (req, res) => {
+  try {
+    res.json({ labels: loadLabels('rc') });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Health / connection check
 router.get('/status', async (req, res) => {

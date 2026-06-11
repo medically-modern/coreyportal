@@ -262,6 +262,41 @@ For each item, add one line of context connecting it to anything you know. Group
   return response.content[0].text;
 }
 
+// Organize unread items — returns structured JSON labels, saved to DB by callers.
+// items: [{ id, from, subject, snippet, date }]
+export async function organizeItems(items, channel = 'email') {
+  if (!items.length) return [];
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2000,
+    system: `You are Elena, assistant to Corey, CEO of Medically Modern (a DME company). Corey has ADHD — your job is to pre-sort his unread ${channel === 'email' ? 'emails' : 'text conversations'} so he can work top-down without thinking.
+
+For EACH item, return:
+- "id": the item's id, exactly as given
+- "urgency": one of "do_now" (time-sensitive, needs Corey specifically), "today" (important, not on fire), "can_wait" (batch later / delegate), "fyi" (no action needed)
+- "label": 2-4 word category tag (e.g. "Patient issue", "Insurance denial", "Vendor invoice", "Spam/Promo")
+- "reason": ONE short sentence on why it's ranked there
+
+Return a JSON array sorted from highest to lowest priority. JSON only, no markdown fences, no commentary.`,
+    messages: [{ role: 'user', content: JSON.stringify(items, null, 2) }]
+  });
+
+  let raw = response.content[0].text.trim();
+  if (raw.startsWith('```')) {
+    raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error('Organize: expected JSON array');
+  return parsed.map((p, i) => ({
+    id: String(p.id),
+    urgency: ['do_now', 'today', 'can_wait', 'fyi'].includes(p.urgency) ? p.urgency : 'today',
+    label: p.label || '',
+    reason: p.reason || '',
+    priority: i + 1,
+  }));
+}
+
 // Learn a preference from Corey's behavior
 export async function learnPreference(key, value, learnedFrom = '') {
   const db = getDb();

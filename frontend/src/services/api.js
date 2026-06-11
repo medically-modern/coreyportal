@@ -18,7 +18,9 @@ export const api = {
 
   // Gmail
   gmailStatus: () => request('/gmail/status'),
-  gmailThreads: (max = 100) => request(`/gmail/threads?max=${max}`),
+  gmailThreads: (max = 100, pageToken = null) => request(`/gmail/threads?max=${max}${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`),
+  gmailOrganize: () => request('/gmail/organize', { method: 'POST', body: JSON.stringify({}) }),
+  gmailOrganizeSaved: () => request('/gmail/organize'),
   gmailThread: (id) => request(`/gmail/thread/${id}`),
   gmailUnread: () => request('/gmail/unread'),
   gmailSummarize: (threadId) => request(`/gmail/summarize/${threadId}`),
@@ -39,7 +41,9 @@ export const api = {
 
   // RingCentral
   rcStatus: () => request('/ringcentral/status'),
-  rcMessages: () => request('/ringcentral/messages'),
+  rcMessages: (daysBack = null, perPage = 250) => request(`/ringcentral/messages?perPage=${perPage}${daysBack ? `&daysBack=${daysBack}` : ''}`),
+  rcOrganize: () => request('/ringcentral/organize', { method: 'POST', body: JSON.stringify({}) }),
+  rcOrganizeSaved: () => request('/ringcentral/organize'),
   rcSummarize: (phone) => request(`/ringcentral/summarize/${encodeURIComponent(phone)}`),
   rcFullConversation: (phone) => request(`/ringcentral/conversation/${encodeURIComponent(phone)}`),
   rcSendSMS: (to, text) => request('/ringcentral/send-sms', { method: 'POST', body: JSON.stringify({ to, text }) }),

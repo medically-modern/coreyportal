@@ -118,6 +118,18 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_learned_subject ON learned_facts(subject);
     CREATE INDEX IF NOT EXISTS idx_learned_category ON learned_facts(category);
 
+    -- Elena's saved labels for emails/texts (persist across page loads)
+    CREATE TABLE IF NOT EXISTS elena_labels (
+      channel TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      urgency TEXT NOT NULL DEFAULT 'today',
+      label TEXT,
+      reason TEXT,
+      priority INTEGER NOT NULL DEFAULT 99,
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (channel, item_id)
+    );
+
     -- Settings (OAuth tokens, config)
 CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
