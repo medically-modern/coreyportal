@@ -16,6 +16,7 @@ import SubmitView from './components/Submit/SubmitView';
 import ParkingLot from './components/Focus/ParkingLot';
 import HyperfocusGuard from './components/Focus/HyperfocusGuard';
 import KeyboardNav from './components/Focus/KeyboardNav';
+import ApiActivityIndicator from './components/shared/ApiActivityIndicator';
 
 function PortalLayout({ children }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -56,6 +57,8 @@ function DashboardWithNav() {
 export default function App() {
   useEffect(() => { initFocusBlur(); }, []);
   return (
+    <>
+    <ApiActivityIndicator />
     <Routes>
       {/* Employee submission page — standalone, no sidebar */}
       <Route path="/submit" element={<SubmitView />} />
@@ -77,5 +80,6 @@ export default function App() {
         </PortalLayout>
       } />
     </Routes>
+    </>
   );
 }

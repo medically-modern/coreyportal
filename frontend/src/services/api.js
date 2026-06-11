@@ -1,15 +1,70 @@
 const API_BASE = import.meta.env.VITE_API_URL || 'https://corey-portal-api-production.up.railway.app/api';
 
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+// ── API activity tracker — feeds the small bottom-right indicator ──
+const activityListeners = new Set();
+let reqSeq = 0;
+
+export function onApiActivity(fn) {
+  activityListeners.add(fn);
+  return () => activityListeners.delete(fn);
+}
+
+function emitActivity(evt) {
+  for (const fn of activityListeners) {
+    try { fn(evt); } catch {}
   }
-  return res.json();
+}
+
+function friendlyLabel(path, method = 'GET') {
+  const p = path.split('?')[0];
+  if (p.includes('/organize') && method === 'POST') return 'Elena organizing...';
+  if (p.includes('/summarize')) return 'Elena summarizing...';
+  if (p.includes('/draft-reply')) return 'Elena drafting...';
+  if (p.includes('/briefing')) return 'Elena briefing...';
+  if (p.includes('/focus-context')) return "Elena's take...";
+  const area =
+    p.startsWith('/gmail') ? 'email' :
+    p.startsWith('/ringcentral') ? 'texts' :
+    p.startsWith('/qa') ? 'team questions' :
+    p.startsWith('/assistant') || p.startsWith('/elena') || p.startsWith('/context') ? 'Elena' :
+    p.startsWith('/slack') ? 'Slack' :
+    p.startsWith('/monday') ? 'Monday' :
+    p.startsWith('/notes') ? 'notes' :
+    p.startsWith('/projects') ? 'projects' :
+    p.startsWith('/trash') ? 'trash' :
+    p.startsWith('/health') ? 'status' :
+    'data';
+  const verb = method === 'GET' ? 'Loading' : 'Sending';
+  return `${verb} ${area}...`;
+}
+
+export function trackApiCall(path, method = 'GET') {
+  const id = ++reqSeq;
+  emitActivity({ type: 'start', id, label: friendlyLabel(path, method) });
+  return {
+    done: () => emitActivity({ type: 'end', id }),
+    fail: () => emitActivity({ type: 'end', id, error: true }),
+  };
+}
+
+async function request(path, options = {}) {
+  const track = trackApiCall(path, options.method || 'GET');
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      ...options,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      track.fail();
+      throw new Error(err.error || res.statusText);
+    }
+    track.done();
+    return res.json();
+  } catch (e) {
+    track.fail();
+    throw e;
+  }
 }
 
 export const api = {
@@ -54,15 +109,23 @@ export const api = {
   // Q&A
   questions: (status = 'pending') => request(`/qa/questions?status=${status}`),
   qaUploadAttachments: async (questionId, files, uploadedBy = 'employee') => {
-    const fd = new FormData();
-    [...files].forEach(f => fd.append('files', f));
-    fd.append('uploaded_by', uploadedBy);
-    const res = await fetch(`${API_BASE}/qa/questions/${questionId}/attachments`, { method: 'POST', body: fd });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Upload failed');
+    const track = trackApiCall(`/qa/questions/${questionId}/attachments`, 'POST');
+    try {
+      const fd = new FormData();
+      [...files].forEach(f => fd.append('files', f));
+      fd.append('uploaded_by', uploadedBy);
+      const res = await fetch(`${API_BASE}/qa/questions/${questionId}/attachments`, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        track.fail();
+        throw new Error(err.error || 'Upload failed');
+      }
+      track.done();
+      return res.json();
+    } catch (e) {
+      track.fail();
+      throw e;
     }
-    return res.json();
   },
   qaAttachmentUrl: (attachmentId) => `${API_BASE}/qa/attachments/${attachmentId}/download`,
   qaDeleteAttachment: (attachmentId) => request(`/qa/attachments/${attachmentId}`, { method: 'DELETE' }),
