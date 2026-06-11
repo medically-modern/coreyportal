@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle, Send, CheckCircle2, Eraser } from 'lucide-react';
+import { Phone, RefreshCw, Loader, Sparkles, ChevronRight, AlertTriangle, Send, CheckCircle2, Eraser, Search, X } from 'lucide-react';
 import ElenaLogo from '../shared/ElenaLogo';
 import { api } from '../../services/api';
 import { timeAgo } from '../../utils/time';
@@ -158,6 +158,9 @@ export default function RingCentralView() {
   const [connected, setConnected] = useState(cachedConvos.current ? true : null);
   const [searchParams] = useSearchParams();
   const deepLinkDone = useRef(false);
+  // Unified search: digits filter by phone; names resolve to phones via the Monday patient index
+  const [searchQ, setSearchQ] = useState('');
+  const [nameMatch, setNameMatch] = useState({ phones: [], names: [], loading: false });
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [elenaLabels, setElenaLabels] = useState({}); // contact -> {urgency,label,reason,priority}
@@ -236,6 +239,48 @@ export default function RingCentralView() {
 
   useEffect(() => { loadMessages(); loadSavedLabels(); }, []);
 
+  // Name search → resolve to phones via Monday patient index (debounced)
+  useEffect(() => {
+    const q = searchQ.trim();
+    const digits = q.replace(/\D/g, '');
+    const isNameSearch = q.length >= 2 && digits.length < 3;
+    if (!isNameSearch) {
+      setNameMatch({ phones: [], names: [], loading: false });
+      return;
+    }
+    setNameMatch(prev => ({ ...prev, loading: true }));
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.mondaySearch(q);
+        const phones = new Set();
+        const names = new Set();
+        for (const r of res.results || []) {
+          names.add(r.name);
+          for (const p of r.phones || []) phones.add(p);
+        }
+        setNameMatch({ phones: [...phones], names: [...names].slice(0, 5), loading: false });
+      } catch {
+        setNameMatch({ phones: [], names: [], loading: false });
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
+  // Mark a conversation's unread texts as read (processed) — same as email
+  async function markConvoProcessed(convo) {
+    const unreadIds = (convo.messages || []).filter(m => m.readStatus === 'Unread' && m.id && !String(m.id).startsWith('local-')).map(m => m.id);
+    const apply = (c) => ({ ...c, unread: 0, messages: (c.messages || []).map(m => ({ ...m, readStatus: 'Read' })) });
+    setConversations(prev => {
+      const next = prev.map(c => c.contact === convo.contact ? apply(c) : c);
+      writeConvoCache(next);
+      return next;
+    });
+    setSelected(prev => prev && prev.contact === convo.contact ? apply(prev) : prev);
+    if (unreadIds.length) {
+      try { await api.rcMarkRead(unreadIds); } catch (e) { console.error('Mark read failed:', e); }
+    }
+  }
+
   // Deep link: /ringcentral?contact=<phone> opens that exact conversation
   useEffect(() => {
     const contact = searchParams.get('contact');
@@ -277,7 +322,20 @@ export default function RingCentralView() {
     return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
   });
 
-  const visible = sorted.slice(0, visibleCount);
+  // Apply the unified search filter
+  const q = searchQ.trim();
+  const qDigits = q.replace(/\D/g, '');
+  const searching = q.length >= 2;
+  const filtered = !searching ? sorted : sorted.filter(c => {
+    const contactDigits = (c.contact || '').replace(/\D/g, '');
+    // Phone-style query: digits substring match
+    if (qDigits.length >= 3) return contactDigits.includes(qDigits);
+    // Name query: contact matches a phone on file for that patient, or matches the text directly
+    const last10 = contactDigits.slice(-10);
+    return nameMatch.phones.includes(last10) || (c.contact || '').toLowerCase().includes(q.toLowerCase());
+  });
+
+  const visible = searching ? filtered : filtered.slice(0, visibleCount);
   const unreadCount = conversations.filter(isUnreadConvo).length;
   const unreadLabels = Object.values(elenaLabels)
     .filter(l => conversations.some(c => c.contact === l.id && isUnreadConvo(c)))
@@ -300,13 +358,42 @@ export default function RingCentralView() {
         </button>
       </div>
 
-      <OrganizeButton onClick={handleOrganize} loading={organizing} count={unreadLabels.length} organizedAt={organizedAt} />
+      <div className="flex items-center gap-3 flex-wrap">
+        <OrganizeButton onClick={handleOrganize} loading={organizing} count={unreadLabels.length} organizedAt={organizedAt} />
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-surface-200/40" />
+          <input
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+            placeholder="Search by name or number..."
+            className="input pl-9 w-full"
+          />
+          {searchQ && (
+            <button onClick={() => setSearchQ('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-200/40 hover:text-white">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        {searching && nameMatch.loading && (
+          <span className="flex items-center gap-1.5 text-xs text-surface-200/40">
+            <Loader size={11} className="animate-spin" /> Matching patients...
+          </span>
+        )}
+        {searching && !nameMatch.loading && nameMatch.names.length > 0 && (
+          <span className="text-xs text-surface-200/40">
+            Matched: <span className="text-brand-400">{nameMatch.names.join(', ')}</span>
+          </span>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div ref={listRef} onScroll={handleScroll} className="lg:col-span-2 card max-h-[70vh] overflow-y-auto p-0" data-focus-group>
           {loading && <div className="p-4 flex justify-center"><Loader size={18} className="animate-spin text-brand-500" /></div>}
           {conversations.length === 0 && !loading && (
             <p className="text-sm text-surface-200/40 p-4">No conversations found.</p>
+          )}
+          {conversations.length > 0 && searching && visible.length === 0 && !nameMatch.loading && (
+            <p className="text-sm text-surface-200/40 p-4">No conversations match "{q}".</p>
           )}
           {visible.map((convo, i) => {
             const lastMsg = (convo.messages || [])[0];
@@ -336,12 +423,12 @@ export default function RingCentralView() {
               </div>
             );
           })}
-          {!loading && visibleCount < sorted.length && (
+          {!loading && !searching && visibleCount < filtered.length && (
             <button onClick={() => setVisibleCount(v => v + PAGE_SIZE)} className="w-full p-3 text-xs text-brand-400 hover:bg-surface-200/5 transition">
-              Show more ({sorted.length - visibleCount} remaining)...
+              Show more ({filtered.length - visibleCount} remaining)...
             </button>
           )}
-          {!loading && conversations.length > 0 && visibleCount >= sorted.length && (
+          {!loading && !searching && conversations.length > 0 && visibleCount >= filtered.length && (
             <p className="p-3 text-center text-[10px] text-surface-200/25">All conversations shown</p>
           )}
         </div>
@@ -356,10 +443,17 @@ export default function RingCentralView() {
                   <ConvoHeader contact={selected.contact} />
                   {elenaLabels[selected.contact] && <span className="shrink-0"><ElenaBadge info={elenaLabels[selected.contact]} /></span>}
                 </div>
-                <button onClick={() => summarizeConvo(selected.contact)} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
-                  {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                  Summarize
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {isUnreadConvo(selected) && (
+                    <button onClick={() => markConvoProcessed(selected)} className="flex items-center gap-1 text-xs px-3 py-2 rounded-lg bg-good/15 text-good hover:bg-good/25 transition">
+                      <CheckCircle2 size={12} /> Mark Processed
+                    </button>
+                  )}
+                  <button onClick={() => summarizeConvo(selected.contact)} disabled={summaryLoading} className="btn-secondary text-xs flex items-center gap-1">
+                    {summaryLoading ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    Summarize
+                  </button>
+                </div>
               </div>
 
               {elenaLabels[selected.contact]?.reason && (
@@ -386,6 +480,8 @@ export default function RingCentralView() {
                 contact={selected.contact}
                 lastInboundText={(selected.messages || []).find(m => m.direction === 'Inbound')?.text || ''}
                 onSent={(sentText) => {
+                  // Replying = processed: mark the convo's unreads read, then append the sent text
+                  markConvoProcessed(selected);
                   const newMsg = { id: `local-${Date.now()}`, direction: 'Outbound', text: sentText, time: new Date().toISOString(), readStatus: 'Read' };
                   setSelected(prev => prev ? { ...prev, messages: [newMsg, ...(prev.messages || [])], lastMessageTime: newMsg.time } : prev);
                   setConversations(prev => prev.map(c => c.contact === selected.contact

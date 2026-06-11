@@ -202,6 +202,31 @@ export async function getFullConversation(phoneNumber, daysBack = 90) {
   return matched;
 }
 
+// Mark messages as read — RC message-store update (batched, comma-separated ids)
+export async function markMessagesRead(messageIds) {
+  if (!messageIds?.length) return { updated: 0 };
+  const p = await getPlatform();
+
+  // RC supports multi-id updates: PUT message-store/{id1},{id2},... (max ~50)
+  const batches = [];
+  for (let i = 0; i < messageIds.length; i += 50) {
+    batches.push(messageIds.slice(i, i + 50));
+  }
+  let updated = 0;
+  for (const batch of batches) {
+    await p.put(`/restapi/v1.0/account/~/extension/~/message-store/${batch.join(',')}`, {
+      readStatus: 'Read',
+    });
+    updated += batch.length;
+  }
+
+  // Invalidate caches so refreshed views see the new status
+  allMessagesCache = null;
+  convoCache.clear();
+
+  return { updated };
+}
+
 // ---- VOICEMAILS ----
 
 export async function getVoicemails(perPage = 20) {

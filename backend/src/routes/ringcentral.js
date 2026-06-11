@@ -8,6 +8,7 @@ import {
   getCallLog,
   getMissedCalls,
   checkConnection,
+  markMessagesRead,
 } from '../services/ringcentral.js';
 import { summarize, organizeItems } from '../services/claude.js';
 import { saveLabels, loadLabels } from './gmail.js';
@@ -106,6 +107,21 @@ router.get('/conversation/:phoneNumber', async (req, res) => {
   } catch (err) {
     console.error('RC conversation error:', err.message);
     res.status(500).json({ error: 'Failed to fetch conversation' });
+  }
+});
+
+// Mark messages as read (processed)
+router.post('/mark-read', async (req, res) => {
+  try {
+    const { messageIds } = req.body;
+    if (!Array.isArray(messageIds) || messageIds.length === 0) {
+      return res.status(400).json({ error: 'messageIds array required' });
+    }
+    const result = await markMessagesRead(messageIds);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('RC mark-read error:', err.message);
+    res.status(500).json({ error: 'Failed to mark as read', detail: err.message });
   }
 });
 

@@ -98,6 +98,7 @@ export const api = {
   rcSummarize: (phone) => request(`/ringcentral/summarize/${encodeURIComponent(phone)}`),
   rcFullConversation: (phone) => request(`/ringcentral/conversation/${encodeURIComponent(phone)}`),
   rcSendSMS: (to, text) => request('/ringcentral/send-sms', { method: 'POST', body: JSON.stringify({ to, text }) }),
+  rcMarkRead: (messageIds) => request('/ringcentral/mark-read', { method: 'POST', body: JSON.stringify({ messageIds }) }),
 
   // Monday
   mondayBoards: () => request('/monday/boards'),

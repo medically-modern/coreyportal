@@ -72,7 +72,16 @@ async function buildIndex() {
 
         for (const item of items) {
           totalItems++;
-          const entry = { name: item.name, board: boardName, group: item.group?.title || '' };
+          // Collect the item's phone numbers first so name searches can map name -> phone
+          const phones = [];
+          for (const col of item.column_values || []) {
+            const val = (col.text || '').trim();
+            if (!val) continue;
+            const digits = val.replace(/\D/g, '');
+            if (digits.length >= 10) phones.push(digits.slice(-10));
+          }
+
+          const entry = { name: item.name, board: boardName, group: item.group?.title || '', phones };
 
           // Index by name
           const nameLower = (item.name || '').toLowerCase().trim();
@@ -82,15 +91,9 @@ async function buildIndex() {
           }
 
           // Index by phone (last 10 digits)
-          for (const col of item.column_values || []) {
-            const val = (col.text || '').trim();
-            if (!val) continue;
-            const digits = val.replace(/\D/g, '');
-            if (digits.length >= 10) {
-              const key = digits.slice(-10);
-              if (!newPhoneIndex.has(key)) newPhoneIndex.set(key, []);
-              newPhoneIndex.get(key).push(entry);
-            }
+          for (const key of phones) {
+            if (!newPhoneIndex.has(key)) newPhoneIndex.set(key, []);
+            newPhoneIndex.get(key).push(entry);
           }
         }
 
